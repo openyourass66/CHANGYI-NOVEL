@@ -1,0 +1,15 @@
+# Local Claude launch configuration and permissions/preferences
+.claude/
+
+# Private/local planning notes
+/CODING_PLAN.md
+
+# The standalone skill repository is optional for the web application
+/novel-continuation/
+
+# Verification scripts and generated local artifacts
+/web/.verify/
+
+# Keep local environment and novel data private (also covered by web/.gitignore)
+/web/.env
+/web/data/

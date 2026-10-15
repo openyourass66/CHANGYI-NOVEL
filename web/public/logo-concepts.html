@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>长忆 · Logo 概念</title>
+    <style>
+      :root {
+        --mark-bg: #3c5898;
+        --mark-fg: #fcfbf8;
+        --bg: #fcfbf8;
+        --fg: #262322;
+        --muted: #6b6660;
+        --border: #e3e0d9;
+        --font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      }
+      .dark {
+        --mark-bg: #86a4e4;
+        --mark-fg: #14110e;
+        --bg: #14110e;
+        --fg: #ece9e3;
+        --muted: #a09a92;
+        --border: #35302a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font-family: var(--font); background: var(--bg); color: var(--fg);
+        padding: 32px 28px 64px;
+      }
+      h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+      .sub { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+      .theme-label {
+        font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+        color: var(--muted); margin: 36px 0 12px; border-bottom: 1px solid var(--border);
+        padding-bottom: 8px;
+      }
+      .row { display: flex; gap: 32px; flex-wrap: wrap; }
+      .card {
+        border: 1px solid var(--border); border-radius: 10px; padding: 20px 22px;
+        width: 300px; background: color-mix(in srgb, var(--fg) 3%, var(--bg));
+      }
+      .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+      .card .note { font-size: 12px; color: var(--muted); margin: 0 0 18px; line-height: 1.55; min-height: 54px; }
+      .sizes { display: flex; align-items: flex-end; gap: 18px; margin-bottom: 20px; }
+      .sizes figure { margin: 0; text-align: center; }
+      .sizes figcaption { font-size: 10px; color: var(--muted); margin-top: 6px; font-family: ui-monospace, monospace; }
+      svg { display: block; }
+      .nav {
+        display: flex; align-items: center; gap: 8px;
+        border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+        font-weight: 600; letter-spacing: -0.01em;
+      }
+      .nav .wordmark { font-size: 15px; }
+    </style>
+  </head>
+  <body>
+    <h1>长忆 · Logo 概念</h1>
+    <p class="sub">三个方向，各含 64 / 32 / 16px 与导航栏实际尺寸。容器用 primary、字形用 primary-foreground，明暗自动跟随令牌。</p>
+
+    <!-- 变量定义在 symbol 内部，避免 <use> shadow tree 切断后代选择器 -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <symbol id="g-ink" viewBox="0 0 64 64">
+        <rect width="64" height="64" rx="15" style="fill: var(--mark-bg)" />
+        <path d="M 43.3 36.3 A 12.5 12.5 0 1 1 35.2 18.9 L 45.8 21.7"
+              style="fill:none; stroke: var(--mark-fg); stroke-width:5.5; stroke-linecap:round; stroke-linejoin:round" />
+        <circle cx="19.5" cy="46.5" r="3" style="fill: var(--mark-fg)" />
+      </symbol>
+      <symbol id="g-book" viewBox="0 0 64 64">
+        <rect width="64" height="64" rx="15" style="fill: var(--mark-bg)" />
+        <g style="fill:none; stroke: var(--mark-fg); stroke-width:5; stroke-linecap:round; stroke-linejoin:round">
+          <path d="M 32 20 C 26 15.5 18 14.5 11 16 L 11 44 C 18 42.5 26 43.5 32 48" />
+          <path d="M 32 20 C 38 15.5 46 14.5 53 16 L 53 44 C 46 42.5 38 43.5 32 48" />
+        </g>
+      </symbol>
+      <symbol id="g-yi" viewBox="0 0 64 64">
+        <rect width="64" height="64" rx="15" style="fill: var(--mark-bg)" />
+        <g transform="translate(-2.5 -1)"
+           style="fill:none; stroke: var(--mark-fg); stroke-width:5; stroke-linecap:round; stroke-linejoin:round">
+          <path d="M 28 18 L 28 48" />
+          <path d="M 19 23 L 25 26" />
+          <path d="M 18 33 L 25 36" />
+          <path d="M 33 19 L 50 19 C 49 27 44 32 38 36 C 32 40 32 45 38 47 C 44 49 49 46 51 42" />
+        </g>
+      </symbol>
+    </svg>
+
+    <div class="theme-label">浅色主题</div>
+    <div class="row">
+      <div class="card">
+        <h2>一 · 续墨</h2>
+        <p class="note">一条不肯闭合的墨线：绕行近三周后甩出笔锋，故事仍在继续。抽象、独特，小尺寸仍可辨认。</p>
+        <div class="sizes">
+          <figure><svg width="64" height="64" role="img" aria-label="长忆标记"><use href="#g-ink" /></svg><figcaption>64</figcaption></figure>
+          <figure><svg width="32" height="32" aria-hidden="true"><use href="#g-ink" /></svg><figcaption>32</figcaption></figure>
+          <figure><svg width="16" height="16" aria-hidden="true"><use href="#g-ink" /></svg><figcaption>16</figcaption></figure>
+        </div>
+        <div class="nav">
+          <svg width="24" height="24" aria-hidden="true"><use href="#g-ink" /></svg>
+          <span class="wordmark">长忆</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>二 · 开卷</h2>
+        <p class="note">摊开的书页，左右对称，中缝即书脊。直白、贴题，一眼读懂是「小说」。</p>
+        <div class="sizes">
+          <figure><svg width="64" height="64" role="img" aria-label="长忆标记"><use href="#g-book" /></svg><figcaption>64</figcaption></figure>
+          <figure><svg width="32" height="32" aria-hidden="true"><use href="#g-book" /></svg><figcaption>32</figcaption></figure>
+          <figure><svg width="16" height="16" aria-hidden="true"><use href="#g-book" /></svg><figcaption>16</figcaption></figure>
+        </div>
+        <div class="nav">
+          <svg width="24" height="24" aria-hidden="true"><use href="#g-book" /></svg>
+          <span class="wordmark">长忆</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>三 · 忆字</h2>
+        <p class="note">「长忆」的忆，几何化书写：忄为记忆，乙为绵延未断的那一笔。品牌名本身就是标记。</p>
+        <div class="sizes">
+          <figure><svg width="64" height="64" role="img" aria-label="长忆标记"><use href="#g-yi" /></svg><figcaption>64</figcaption></figure>
+          <figure><svg width="32" height="32" aria-hidden="true"><use href="#g-yi" /></svg><figcaption>32</figcaption></figure>
+          <figure><svg width="16" height="16" aria-hidden="true"><use href="#g-yi" /></svg><figcaption>16</figcaption></figure>
+        </div>
+        <div class="nav">
+          <svg width="24" height="24" aria-hidden="true"><use href="#g-yi" /></svg>
+          <span class="wordmark">长忆</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="dark" style="margin-top: 8px;">
+      <div class="theme-label">深色主题</div>
+      <div class="row">
+        <div class="card">
+          <h2>一 · 续墨</h2>
+          <p class="note">深色下 primary 提亮，字形反转为深色前景，对比度保持一致。</p>
+          <div class="sizes">
+            <figure><svg width="64" height="64" role="img" aria-label="长忆标记"><use href="#g-ink" /></svg><figcaption>64</figcaption></figure>
+            <figure><svg width="32" height="32" aria-hidden="true"><use href="#g-ink" /></svg><figcaption>32</figcaption></figure>
+            <figure><svg width="16" height="16" aria-hidden="true"><use href="#g-ink" /></svg><figcaption>16</figcaption></figure>
+          </div>
+          <div class="nav">
+            <svg width="24" height="24" aria-hidden="true"><use href="#g-ink" /></svg>
+            <span class="wordmark">长忆</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>二 · 开卷</h2>
+          <p class="note">书页轮廓在深色下依旧清晰，描边厚度与图标体系一致。</p>
+          <div class="sizes">
+            <figure><svg width="64" height="64" role="img" aria-label="长忆标记"><use href="#g-book" /></svg><figcaption>64</figcaption></figure>
+            <figure><svg width="32" height="32" aria-hidden="true"><use href="#g-book" /></svg><figcaption>32</figcaption></figure>
+            <figure><svg width="16" height="16" aria-hidden="true"><use href="#g-book" /></svg><figcaption>16</figcaption></figure>
+          </div>
+          <div class="nav">
+            <svg width="24" height="24" aria-hidden="true"><use href="#g-book" /></svg>
+            <span class="wordmark">长忆</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>三 · 忆字</h2>
+          <p class="note">字标在深色下笔画更亮，几何骨架仍可辨认。</p>
+          <div class="sizes">
+            <figure><svg width="64" height="64" role="img" aria-label="长忆标记"><use href="#g-yi" /></svg><figcaption>64</figcaption></figure>
+            <figure><svg width="32" height="32" aria-hidden="true"><use href="#g-yi" /></svg><figcaption>32</figcaption></figure>
+            <figure><svg width="16" height="16" aria-hidden="true"><use href="#g-yi" /></svg><figcaption>16</figcaption></figure>
+          </div>
+          <div class="nav">
+            <svg width="24" height="24" aria-hidden="true"><use href="#g-yi" /></svg>
+            <span class="wordmark">长忆</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
