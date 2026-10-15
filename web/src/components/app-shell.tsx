@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Feather } from "lucide-react";
 import { NavLinks } from "@/components/nav-links";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AccountMenu } from "@/components/account-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -20,6 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="h-5 w-px bg-border" aria-hidden />
             <NavLinks />
             <div className="ml-auto flex items-center gap-1">
+              <AccountMenu />
               <ThemeToggle />
             </div>
           </div>

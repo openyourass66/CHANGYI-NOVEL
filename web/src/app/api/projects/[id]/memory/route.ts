@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { handleError, ok, readJson } from "@/lib/api";
 import { isMemoryCategory, type MemoryCategory } from "@/lib/domain";
 import {
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(request: Request, { params }: Ctx) {
+async function handleGET(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const url = new URL(request.url);
@@ -33,7 +34,7 @@ export async function GET(request: Request, { params }: Ctx) {
   }
 }
 
-export async function POST(request: Request, { params }: Ctx) {
+async function handlePOST(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const input = memoryInputSchema.parse(await readJson(request));
@@ -42,3 +43,6 @@ export async function POST(request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("project", handleGET);
+export const POST = withAccount("project", handlePOST);

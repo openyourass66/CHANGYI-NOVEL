@@ -1,4 +1,5 @@
 import "server-only";
+import { prisma } from "@/lib/db";
 import { MODEL_PROVIDER } from "@/lib/domain";
 import { resolveProfile } from "@/lib/ai/client";
 import { AnalysisError } from "@/lib/ai/errors";
@@ -27,7 +28,9 @@ export async function previewRun(
   projectId: string,
   opts: { payload?: RunPayload; chapterIds?: string[]; taskType: string; profileId: string },
 ): Promise<RunPreview> {
-  const profile = await resolveProfile(opts.profileId);
+  const project = await prisma.novelProject.findUnique({ where: { id: projectId }, select: { ownerId: true } });
+  if (!project?.ownerId) throw new AnalysisError("项目不存在。", 404);
+  const profile = await resolveProfile(opts.profileId, project.ownerId);
   const task = getTask(opts.taskType);
 
   const payload: RunPayload =

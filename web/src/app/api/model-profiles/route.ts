@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { fail, handleError, ok, readJson } from "@/lib/api";
 import { isEncryptionConfigured } from "@/lib/crypto";
 import { createProfile, listProfiles, profileInputSchema } from "@/lib/ai/profiles";
@@ -5,7 +6,7 @@ import { createProfile, listProfiles, profileInputSchema } from "@/lib/ai/profil
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function handleGET() {
   try {
     const profiles = await listProfiles();
     return ok({ profiles, encryptionReady: isEncryptionConfigured() });
@@ -14,7 +15,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     if (!isEncryptionConfigured()) {
       return fail("尚未配置主密钥 APP_ENCRYPTION_KEY，无法安全保存密钥。", 428);
@@ -26,3 +27,6 @@ export async function POST(request: Request) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("account", handleGET);
+export const POST = withAccount("account", handlePOST);

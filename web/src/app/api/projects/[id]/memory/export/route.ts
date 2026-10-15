@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { fail, handleError } from "@/lib/api";
 import { exportFileName } from "@/lib/export";
 import { exportMemoryMarkdown } from "@/lib/memory";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, { params }: Ctx) {
+async function handleGET(_request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const project = await getProject(id);
@@ -27,3 +28,5 @@ export async function GET(_request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("project", handleGET);

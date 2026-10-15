@@ -173,9 +173,13 @@ export async function runChat(
 }
 
 /** 从数据库档案解析出运行时档案（含明文密钥）。仅服务端调用。 */
-export async function resolveProfile(profileId: string): Promise<ResolvedProfile> {
-  const row = await prisma.modelProfile.findUnique({ where: { id: profileId } });
+export async function resolveProfile(profileId: string, userId: string): Promise<ResolvedProfile> {
+  const row = await prisma.modelProfile.findFirst({ where: { id: profileId, userId } });
   if (!row) throw new AiError("模型档案不存在。");
+  const isLocal = row.isLocal || LOCAL_PROVIDERS.includes(row.provider as ModelProvider);
+  if ((isLocal || row.executionLocation === "device") && process.env.ALLOW_SERVER_LOCAL_MODELS === "false") {
+    throw new AiError("本地模型需要由桌面客户端在所属设备上调用；当前虚拟机服务不执行本地模型请求。");
+  }
   let apiKey: string | null = null;
   if (row.apiKeyEncrypted) {
     try {
@@ -191,6 +195,6 @@ export async function resolveProfile(profileId: string): Promise<ResolvedProfile
     model: row.model,
     baseUrl: row.baseUrl,
     apiKey,
-    isLocal: row.isLocal || LOCAL_PROVIDERS.includes(row.provider as ModelProvider),
+    isLocal,
   };
 }

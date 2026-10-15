@@ -1,11 +1,12 @@
 # 小说理解与续写工作台
 
-本项目把长篇小说的导入、理解、故事记忆维护和续写流程整合到一个本机运行的 Web 工作台中。原文以只读方式保存；分析结论、记忆和续写草稿单独记录。项目面向单用户本地使用，目前不提供账号或云端同步。
+本项目把长篇小说的导入、理解、故事记忆维护和续写流程整合到 Web 工作台中。原文以只读方式保存；分析结论、记忆和续写草稿单独记录。目前支持账号隔离，面向本人本机与虚拟机自测，尚未完成公网试用验收。
 
 Web 应用不依赖同级的 `novel-continuation` 技能目录，单独克隆本仓库即可运行。应用内的记忆 Markdown 导入器已包含解析逻辑，无需安装该技能目录。
 
 ## 功能
 
+- **账号与隔离**：邮箱注册并验证；可使用邮箱+密码或邮箱+验证码登录，注册验证和密码找回均在各自表单内完成。新设密码为 6～20 个字符，已有较长密码仍可登录。项目、子资源和模型档案按账号隔离。密码重置会撤销已有会话。
 - **项目与原文**：创建项目，导入 TXT、Markdown、DOCX、EPUB、HTML 和可提取文本的 PDF；自动识别章节，并可调整章节顺序、标题、切分和合并。
 - **小说分析**：逐章抽取故事信息、统合全书，并查看任务进度、运行记录和待审阅的记忆提案。
 - **故事记忆**：维护章节笔记、设定、人物、时间线、悬念、文风、术语和概要；条目支持状态、出处、编辑和历史版本。
@@ -17,7 +18,7 @@ Web 应用不依赖同级的 `novel-continuation` 技能目录，单独克隆本
 
 ## 本机运行
 
-需要 Node.js 与 pnpm（仓库指定 pnpm 11.1.1）。在项目根目录执行：
+需要 Node.js 22.20+ 与 pnpm（仓库指定 pnpm 11.1.1）。在项目根目录执行：
 
 ```powershell
 Set-Location web
@@ -25,7 +26,7 @@ if (!(Test-Path .env)) { Copy-Item .env.example .env }
 pnpm install
 ```
 
-编辑 `web/.env`：将 `APP_ENCRYPTION_KEY` 替换为 64 位十六进制字符串。可用以下命令生成：
+编辑 `web/.env`：分别为 `APP_ENCRYPTION_KEY` 和 `BETTER_AUTH_SECRET` 生成独立的 64 位十六进制值，配置本机 Redis 地址及网易 SMTP 邮箱和客户端授权码。可用以下命令生成随机值（执行两次）：
 
 ```powershell
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
@@ -39,7 +40,16 @@ pnpm exec prisma migrate deploy
 pnpm dev
 ```
 
-打开 <http://localhost:3000>。模型档案在应用的「设置」页配置。没有配置模型时，仍可创建项目、导入和校对原文。
+打开 <http://localhost:3000> 注册账号并收取 6 位邮箱验证码，验证后登录使用。注册页在邮箱输入框旁发送验证码，并在同一页输入验证码完成注册。验证码、认证限流和会话缓存使用 Redis；账号、密码哈希及持久会话保存在数据库。邮箱验证、密码找回等邮件流程统一使用验证码，不使用邮件链接。`BETTER_AUTH_URL` 必须与浏览器实际访问的完整地址一致。模型档案在「设置」页配置；没有配置模型时，仍可创建项目、导入和校对原文。
+
+升级已有 SQLite 时，先停止旧服务并备份数据库及文件，再运行上述 migration。旧项目和模型档案保持未认领状态，不自动绑定注册者。指定账号完成邮箱验证后，可以显式认领：
+
+```powershell
+pnpm data:claim --email your-email@example.com
+pnpm data:claim --email your-email@example.com --apply
+```
+
+第一条仅输出数量，第二条才绑定尚未归属账号的项目及模型档案；已有其他归属的数据不变。本机认领保留模型密钥，迁往 PostgreSQL 的工具会清空旧密文。
 
 常用检查命令（在 `web/` 目录运行）：
 
@@ -47,14 +57,40 @@ pnpm dev
 pnpm lint
 pnpm exec tsc --noEmit
 pnpm build
+pnpm verify:auth
+pnpm verify:migration
+pnpm verify:postgres-types
 ```
+
+两套验证均使用 `.verify/` 下的隔离数据库和测试文件，不访问真实小说数据。账号验证需要先完成生产构建。邮件回调在测试中被捕获，真实 SMTP 投递仍需部署联调；迁移测试使用 SQLite 目标适配器，不能替代 PostgreSQL 和容器实测。
+
+`verify:postgres-types` 会另外生成隔离的 PostgreSQL 客户端，对应用和脚本运行类型检查；不替换本机 SQLite 客户端、不连接数据库。上传虚拟机前可运行 `pnpm deploy:package`，在 `.verify/deploy/` 生成包含当前未提交实现的源码包和 SHA-256 文件；包内含文件清单，排除真实环境配置、数据库、小说、依赖和本地技能目录。
+
+部署容器中可运行 `pnpm verify:postgres`，在数据库的随机独立 schema 内运行账号/API 隔离和 SQLite → PostgreSQL 迁移演练，结束后清理这些测试 schema。它不向实际账号发送邮件，也不读写正式业务表；仍需单独联调 Redis、真实 SMTP 和虚拟机重启恢复。
+
+## Docker 本机自测部署
+
+`web/compose.yaml` 提供 Next.js 生产构建、PostgreSQL 16、健康检查、自动重启和日志轮转，并连接虚拟机已有的 Redis。数据库及应用文件分别保存在 Docker 持久卷中，数据库不发布宿主机端口，应用默认只绑定 `127.0.0.1:3000`。当前仅供本人本机自测；CentOS 7 不开放公网。部署前核对宿主机内核与 Docker/Compose，具体步骤见 [部署、数据迁移与恢复说明](web/deploy/README.md)。
+
+在 `web/` 目录复制生产环境变量示例并分别生成数据库密码和加密密钥，然后启动：
+
+```powershell
+if (!(Test-Path .env.vm)) { Copy-Item .env.production.example .env.vm }
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+docker compose --env-file .env.vm up -d --build
+docker compose --env-file .env.vm logs -f app
+```
+
+运行生成命令三次，将独立值分别填入 `.env.vm` 的 `POSTGRES_PASSWORD`、`APP_ENCRYPTION_KEY` 和 `BETTER_AUTH_SECRET`，并填写 SMTP 配置。将 `REDIS_URL` 指向虚拟机已运行的 Redis；默认示例使用 `redis://host.docker.internal:6379`，Redis 需要允许 Docker 网桥访问。新加密密钥不用于解密旧模型密文；迁移后需重新录入外部 API 密钥。将 `APP_BIND_ADDRESS` 设为回环地址或确认过的 host-only 网卡地址，同时将 `BETTER_AUTH_URL` 设为浏览器实际访问地址。首次启动应用 PostgreSQL 迁移；旧数据通过 `pnpm data:migrate` 显式绑定指定账号并核对记录、正文与文件哈希。停止服务使用 `docker compose --env-file .env.vm down`，不要加 `-v`。
 
 ## 数据与隐私
 
 - 默认数据库和小说文件位于 `web/data/`；可通过 `NOVEL_DATA_DIR` 指定其他数据目录。
 - `web/.env` 中的 `APP_ENCRYPTION_KEY` 用于在本机加密模型 API 密钥。请妥善备份该密钥；丢失后无法解密已保存的模型密钥。
-- `.env`、本机数据库、导入的小说原文和验证脚本已加入忽略规则，不应提交到 Git。
-- 云端模型只在用户确认授权后接收预览中说明的数据；本地模型请求直接发往本机端点。
+- `.env*` 中的真实配置、本机数据库、导入的小说原文和 `.verify/` 生成文件已加入忽略规则，不应提交到 Git。环境变量示例及不含私有数据的验证脚本随代码维护。
+- 云端模型只在用户确认授权后接收预览中说明的数据，由用户提供密钥并承担费用。本机开发可访问本机模型端点；虚拟机部署禁用本地推理，Ollama/LM Studio 的设备执行流程等待 Windows 桌面端实现。
+- 账号密码与持久会话保存在数据库；验证码、认证限流及会话缓存保存在 Redis。邮箱验证码为 6 位数字，5 分钟过期并限制校验次数；注册、邮箱验证和密码找回都通过邮件验证码，不发送邮件操作链接。浏览器使用 HttpOnly、SameSite Cookie；HTTPS 地址使用 Secure Cookie。认证与数据库日志不输出正文、密码或令牌。
+- 当前自测认证采用整个实例共享的 Redis 限流桶。远程试用前需补足可信代理 IP 配置、机器人防护及邮件监控。
 - 重新导入原文会清除依赖旧原文的章节分析、记忆、续写方向、草稿、连续性问题和记忆提案。需要保留的项目数据应先导出。
 - 已有草稿的续写方向不能直接重生成章纲；请先导出并删除该方向的草稿，避免旧草稿与新章纲错配。
 
@@ -65,6 +101,9 @@ pnpm build
 ├── README.md                  # 项目说明与运行指南
 └── web/
     ├── prisma/                # SQLite 数据模型与迁移
+    ├── prisma-postgresql/     # PostgreSQL 部署模型与迁移
+    ├── deploy/                # 虚拟机部署、备份与恢复说明
+    ├── scripts/               # 认领、迁移与隔离验证工具
     ├── src/app/               # Next.js 页面和 API
     ├── src/components/        # 项目、记忆、分析和续写界面
     └── src/lib/               # 导入、领域逻辑、模型接入与存储

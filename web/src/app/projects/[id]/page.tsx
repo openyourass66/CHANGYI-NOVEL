@@ -1,3 +1,4 @@
+import { requirePageUser } from "@/lib/auth-session";
 import { notFound } from "next/navigation";
 import { formatLabel } from "@/lib/domain";
 import { listChapterSummaries } from "@/lib/chapters";
@@ -11,6 +12,7 @@ export default async function ProjectPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requirePageUser();
   const { id } = await params;
   const workspace = await getProjectWorkspace(id);
   if (!workspace) notFound();

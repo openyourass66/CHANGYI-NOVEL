@@ -1,10 +1,11 @@
+import { withAccount } from "@/lib/access";
 import { handleError, ok, readJson } from "@/lib/api";
 import { createProject, listProjects, projectInputSchema } from "@/lib/projects";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function handleGET() {
   try {
     return ok({ projects: await listProjects() });
   } catch (error) {
@@ -12,7 +13,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const input = projectInputSchema.parse(await readJson(request));
     const project = await createProject(input);
@@ -21,3 +22,6 @@ export async function POST(request: Request) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("account", handleGET);
+export const POST = withAccount("account", handlePOST);

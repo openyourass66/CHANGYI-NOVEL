@@ -122,9 +122,9 @@ export async function startAnalysisRun(
   const task = getTask(opts.taskType);
 
   const project = await prisma.novelProject.findUnique({ where: { id: projectId } });
-  if (!project) throw new AnalysisError("项目不存在。", 404);
+  if (!project?.ownerId) throw new AnalysisError("项目不存在。", 404);
 
-  const profile = await resolveProfile(opts.profileId);
+  const profile = await resolveProfile(opts.profileId, project.ownerId);
   if (!profile.isLocal && opts.authorized !== true) {
     throw new AnalysisError("远端模型需要用户授权后才能发送原文。", 403);
   }
@@ -176,7 +176,8 @@ export async function processRun(runId: string): Promise<void> {
       return;
     }
 
-    const profile = run.modelProfileId ? await resolveProfile(run.modelProfileId) : null;
+    const project = await prisma.novelProject.findUnique({ where: { id: run.projectId }, select: { ownerId: true } });
+    const profile = run.modelProfileId && project?.ownerId ? await resolveProfile(run.modelProfileId, project.ownerId) : null;
     if (!profile) {
       await prisma.analysisRun.update({
         where: { id: runId },

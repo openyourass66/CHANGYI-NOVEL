@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { handleError, ok, readJson } from "@/lib/api";
 import { deleteKnowledge, knowledgeInputSchema, updateKnowledge } from "@/lib/knowledge";
 
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function PATCH(request: Request, { params }: Ctx) {
+async function handlePATCH(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const input = knowledgeInputSchema.parse(await readJson(request));
@@ -16,7 +17,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Ctx) {
+async function handleDELETE(_request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     await deleteKnowledge(id);
@@ -25,3 +26,6 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const PATCH = withAccount("knowledge", handlePATCH);
+export const DELETE = withAccount("knowledge", handleDELETE);

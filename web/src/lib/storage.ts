@@ -3,10 +3,11 @@ import path from "node:path";
 
 /** 本机数据目录：默认 <web>/data，可由 NOVEL_DATA_DIR 覆盖。 */
 export const DATA_DIR =
-  process.env.NOVEL_DATA_DIR ?? path.join(process.cwd(), "data");
+  path.resolve(/* turbopackIgnore: true */ process.env.NOVEL_DATA_DIR ?? path.join(process.cwd(), "data"));
 
 export function projectDir(projectId: string) {
-  return path.join(DATA_DIR, "projects", projectId);
+  if (!/^[a-zA-Z0-9_-]+$/.test(projectId)) throw new Error("项目标识无效。");
+  return path.join(/* turbopackIgnore: true */ DATA_DIR, "projects", projectId);
 }
 
 export function projectSourcesDir(projectId: string) {
@@ -24,9 +25,14 @@ export async function ensureProjectDirs(projectId: string) {
 
 /** 保存相对路径，便于项目整体迁移；读取时再拼回 DATA_DIR。 */
 export function toStoredPath(absolutePath: string) {
-  return path.relative(DATA_DIR, absolutePath).split(path.sep).join("/");
+  const relative = path.relative(DATA_DIR, absolutePath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("文件路径超出存储目录。");
+  return relative.split(path.sep).join("/");
 }
 
 export function fromStoredPath(storedPath: string) {
-  return path.join(DATA_DIR, ...storedPath.split("/"));
+  if (!storedPath || storedPath.includes("\\") || path.isAbsolute(storedPath)) throw new Error("文件路径无效。");
+  const resolved = path.resolve(/* turbopackIgnore: true */ DATA_DIR, storedPath);
+  toStoredPath(resolved);
+  return resolved;
 }

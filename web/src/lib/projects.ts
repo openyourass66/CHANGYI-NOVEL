@@ -2,6 +2,7 @@ import "server-only";
 import { rm } from "node:fs/promises";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { requireUser } from "@/lib/auth-session";
 import { projectDir } from "@/lib/storage";
 
 export const projectInputSchema = z.object({
@@ -24,7 +25,9 @@ export type ProjectSummary = {
 };
 
 export async function listProjects(): Promise<ProjectSummary[]> {
+  const user = await requireUser();
   const rows = await prisma.novelProject.findMany({
+    where: { ownerId: user.id },
     orderBy: { updatedAt: "desc" },
     include: {
       _count: { select: { chapters: true, sourceDocuments: true, memoryEntries: true } },
@@ -44,8 +47,10 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 }
 
 export async function createProject(input: ProjectInput) {
+  const user = await requireUser();
   return prisma.novelProject.create({
     data: {
+      ownerId: user.id,
       name: input.name,
       language: input.language,
       genre: input.genre?.trim() || null,
@@ -54,12 +59,14 @@ export async function createProject(input: ProjectInput) {
 }
 
 export async function getProject(id: string) {
-  return prisma.novelProject.findUnique({ where: { id } });
+  const user = await requireUser();
+  return prisma.novelProject.findFirst({ where: { id, ownerId: user.id } });
 }
 
 export async function getProjectOverview(id: string) {
-  const project = await prisma.novelProject.findUnique({
-    where: { id },
+  const user = await requireUser();
+  const project = await prisma.novelProject.findFirst({
+    where: { id, ownerId: user.id },
     include: {
       sourceDocuments: { orderBy: { importedAt: "desc" } },
       chapters: { orderBy: { sortOrder: "asc" } },
@@ -69,7 +76,7 @@ export async function getProjectOverview(id: string) {
 }
 
 export async function getProjectWorkspace(id: string) {
-  const project = await prisma.novelProject.findUnique({ where: { id } });
+  const project = await getProject(id);
   if (!project) return null;
   const source = await prisma.sourceDocument.findFirst({
     where: { projectId: id },
@@ -79,7 +86,7 @@ export async function getProjectWorkspace(id: string) {
 }
 
 export async function deleteProject(id: string) {
-  const project = await prisma.novelProject.findUnique({ where: { id } });
+  const project = await getProject(id);
   if (!project) return;
   await prisma.novelProject.delete({ where: { id } });
   // 清理本机文件（源文与导出）

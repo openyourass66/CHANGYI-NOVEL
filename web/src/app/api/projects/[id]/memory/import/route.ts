@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { fail, handleError, ok } from "@/lib/api";
 import { MAX_FILE_BYTES } from "@/lib/import/parsers";
 import { importMemoryFiles, type ImportFileInput } from "@/lib/memory-import/service";
@@ -10,7 +11,7 @@ type Ctx = { params: Promise<{ id: string }> };
 const ALLOWED_EXT = /\.(md|markdown|txt)$/i;
 const MAX_FILES = 20;
 
-export async function POST(request: Request, { params }: Ctx) {
+async function handlePOST(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const form = await request.formData();
@@ -35,3 +36,5 @@ export async function POST(request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const POST = withAccount("project", handlePOST);

@@ -1,0 +1,344 @@
+// 小说理解与续写 App — 领域模型
+// PostgreSQL 部署：所有项目和模型档案必须绑定账号。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  projects      NovelProject[]
+  modelProfiles ModelProfile[]
+}
+
+model Session {
+  id        String   @id
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Account {
+  id                     String    @id
+  accountId              String
+  providerId             String
+  userId                 String
+  password               String?
+  accessToken            String?
+  refreshToken           String?
+  idToken                String?
+  accessTokenExpiresAt   DateTime?
+  refreshTokenExpiresAt  DateTime?
+  scope                  String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  @@index([identifier])
+}
+
+model RateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+}
+
+/// 小说项目
+model NovelProject {
+  id              String   @id @default(cuid())
+  name            String
+  language        String   @default("zh")
+  genre           String? // 体裁，未知则 null
+  preferencesJson String   @default("{}")
+  ownerId         String // 必填账号归属
+  owner           User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sourceDocuments   SourceDocument[]
+  chapters          Chapter[]
+  analysisRuns      AnalysisRun[]
+  memoryEntries     MemoryEntry[]
+  characterKnowledge CharacterKnowledge[]
+  continuityIssues  ContinuityIssue[]
+  continuationPlans ContinuationPlan[]
+  draftChapters     DraftChapter[]
+  citations         SourceCitation[]
+  memoryProposals   MemoryProposal[]
+
+  @@index([ownerId])
+}
+
+/// 导入的源文档（原文，只读）
+model SourceDocument {
+  id           String   @id @default(cuid())
+  projectId    String
+  fileName     String
+  format       String // txt | markdown | docx | epub | html | pdf
+  storedPath   String // 本机文件系统相对路径
+  contentHash  String // 源文件哈希，用于防篡改与去重
+  encoding     String?
+  byteSize     Int
+  isReadOnly   Boolean  @default(true)
+  importedAt   DateTime @default(now())
+
+  project  NovelProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapters Chapter[]
+
+  @@index([projectId])
+}
+
+/// 章节
+model Chapter {
+  id               String  @id @default(cuid())
+  projectId        String
+  sourceDocumentId String
+  volumeNumber     Int? // 卷号（无卷则空）
+  volumeTitle      String?
+  rawTitle         String // 原文标题
+  normalizedIndex  Int // 规范化后的章序（用于排序）
+  content          String // 正文（不含标题行的显示用文本）
+  startOffset      Int // 在源文中的字符起止，用于定位回链
+  endOffset        Int
+  sortOrder        Int
+  splitMethod      String  @default("auto") // auto | manual
+  parseConfidence  Float   @default(1)
+  flagsJson        String  @default("[]") // 缺号/重号/乱序/空章等提示
+  analysisStatus   String  @default("pending") // pending | analyzing | done | failed
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project        NovelProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceDocument SourceDocument   @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  citations      SourceCitation[]
+
+  @@index([projectId, sortOrder])
+  @@index([sourceDocumentId])
+}
+
+/// 模型配置档案（密钥本机加密，绝不进入客户端包或项目导出）
+model ModelProfile {
+  id              String    @id @default(cuid())
+  userId          String // 必填账号归属
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  executionLocation String  @default("server") // server | device
+  name            String
+  provider        String // openai-compatible | anthropic | ollama | lmstudio | ...
+  model           String
+  baseUrl         String?
+  apiKeyEncrypted String? // AES-256-GCM 密文（JSON: iv/tag/ct），本地模型留空
+  isLocal         Boolean   @default(false)
+  isDefault       Boolean   @default(false)
+  taskUsageJson   String    @default("{}")
+  statusNote      String?
+  lastCheckedAt   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  analysisRuns AnalysisRun[]
+
+  @@index([isDefault])
+  @@index([userId])
+}
+
+/// 分析任务运行记录
+model AnalysisRun {
+  id             String    @id @default(cuid())
+  projectId      String
+  taskType       String // chapter-extract | memory-merge | book-synthesis | direction | outline | draft | continuity-check
+  inputRangeJson String    @default("{}")
+  modelProfileId String?
+  promptVersion  String?
+  status         String    @default("pending") // pending | running | done | failed | canceled
+  error          String?
+  usageJson      String    @default("{}")
+  progressJson   String    @default("{}") // 批次进度：batchIndex/batchTotal/chaptersDone 等
+  authorizedAt   DateTime? // 云端请求的用户授权时间（本地模型为空）
+  canceledAt     DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  project      NovelProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  modelProfile ModelProfile? @relation(fields: [modelProfileId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status])
+}
+
+/// 记忆合并提案：模型分析产出、等待用户确认后才写入正式记忆
+model MemoryProposal {
+  id            String   @id @default(cuid())
+  projectId     String
+  runId         String? // 来源分析任务
+  chapterId     String? // 来源章节
+  draftId       String? // 来源续写草稿（草稿记忆增量；此时 chapterId 为空）
+  kind          String // add | update | conflict
+  category      String
+  key           String?
+  title         String?
+  content       String
+  status        String
+  citationsJson String   @default("[]")
+  targetEntryId String? // update/conflict 指向的当前条目
+  reason        String? // 冲突或变更原因
+  state         String   @default("pending") // pending | accepted | rejected | conflicted
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project NovelProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  draft   DraftChapter? @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, state])
+  @@index([runId])
+  @@index([draftId])
+}
+
+/// 记忆条目（章节笔记/设定/人物/时间线/线索/文风/术语/摘要/大纲）
+model MemoryEntry {
+  id                  String   @id @default(cuid())
+  projectId           String
+  category            String // chapter-note | story-bible | character | timeline | thread | style | glossary | summary | outline
+  key                 String? // 稳定键，便于增量合并同类条目
+  title               String?
+  content             String
+  status              String   @default("unknown") // confirmed | inferred | unknown | open | advanced | resolved | uncertain
+  sourceCitationsJson String   @default("[]")
+  isUserEdited        Boolean  @default(false) // 人工修改标记，后续模型运行不得静默覆盖
+  revision            Int      @default(1)
+  isCurrent           Boolean  @default(true)
+  supersedesId        String? // 指向被本版本取代的历史条目
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  project NovelProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, category, isCurrent])
+  @@index([projectId, key])
+}
+
+/// 角色认知（已知 / 误信 / 未知 分开维护）
+model CharacterKnowledge {
+  id            String   @id @default(cuid())
+  projectId     String
+  characterName String
+  infoItem      String
+  relation      String // known | misbelieved | unknown
+  sourceJson    String   @default("[]")
+  createdAt     DateTime @default(now())
+
+  project NovelProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, characterName])
+}
+
+/// 连续性检查问题
+model ContinuityIssue {
+  id           String   @id @default(cuid())
+  projectId    String
+  /// 由哪一章续写草稿的连续性检查产出（原文检查时为空）
+  draftId      String?
+  category     String // 时间 | 因果 | 设定 | 人物认知 | 视角 | 顺序 | 其他
+  severity     String   @default("info") // info | warning | error
+  description  String
+  evidenceJson String   @default("[]")
+  status       String   @default("open") // open | accepted | ignored | resolved
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project NovelProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  draft   DraftChapter? @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+  @@index([draftId])
+}
+
+/// 续写规划（方向 + 章纲）
+model ContinuationPlan {
+  id                 String   @id @default(cuid())
+  projectId          String
+  direction          String // 选定的续写方向
+  summary            String?
+  outlineJson        String   @default("[]") // 章纲条目
+  relatedThreadsJson String   @default("[]")
+  status             String   @default("draft") // draft | active | done
+  version            Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  project       NovelProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  draftChapters DraftChapter[]
+
+  @@index([projectId, status])
+}
+
+/// 续写草稿章节
+model DraftChapter {
+  id                  String   @id @default(cuid())
+  projectId           String
+  planId              String?
+  index               Int
+  title               String?
+  content             String
+  outlineItemJson     String   @default("{}")
+  version             Int      @default(1)
+  continuityCheckJson String   @default("{}")
+  memoryUpdateStatus  String   @default("none") // none | proposed | applied
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  project          NovelProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  plan             ContinuationPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  continuityIssues ContinuityIssue[]
+  memoryProposals  MemoryProposal[]
+
+  @@index([projectId, index])
+}
+
+/// 出处引用：分析产物/记忆回链到原文位置
+model SourceCitation {
+  id          String   @id @default(cuid())
+  projectId   String
+  chapterId   String?
+  startOffset Int?
+  endOffset   Int?
+  excerpt     String? // 短摘录
+  anchor      String? // 定位锚点
+  createdAt   DateTime @default(now())
+
+  project NovelProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapter Chapter?     @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([chapterId])
+}

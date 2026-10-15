@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { handleError, ok } from "@/lib/api";
 import { listProposals, proposalCounts } from "@/lib/ai/proposals";
 import type { ProposalState } from "@/lib/ai/types";
@@ -9,7 +10,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const STATES: ProposalState[] = ["pending", "accepted", "rejected", "conflicted"];
 
-export async function GET(request: Request, { params }: Ctx) {
+async function handleGET(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const raw = new URL(request.url).searchParams.get("state");
@@ -23,3 +24,5 @@ export async function GET(request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("project", handleGET);

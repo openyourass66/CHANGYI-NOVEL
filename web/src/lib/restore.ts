@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/db";
+import { requireUser } from "@/lib/auth-session";
 import { ensureProjectDirs, projectDir, projectSourcesDir, toStoredPath } from "@/lib/storage";
 import { EXPORT_VERSION } from "@/lib/export";
 
@@ -55,8 +56,9 @@ function clip(value: unknown, fallback: string, max: number): string {
 
 /** 恢复到一个新项目，避免覆盖现有项目。重名时追加「（恢复）」后缀。 */
 async function uniqueProjectName(base: string): Promise<string> {
+  const user = await requireUser();
   const taken = new Set(
-    (await prisma.novelProject.findMany({ select: { name: true } })).map((p) => p.name),
+    (await prisma.novelProject.findMany({ where: { ownerId: user.id }, select: { name: true } })).map((p) => p.name),
   );
   if (!taken.has(base)) return base;
   let candidate = `${base}（恢复）`;
@@ -74,6 +76,7 @@ function safeSourceName(name: string): string {
  * 章节仍沿用导出的字符偏移与顺序；记忆引用、草稿证据等一律重映射到新生成的 id。
  */
 export async function restoreProjectFromExport(input: unknown): Promise<RestoreSummary> {
+  const user = await requireUser();
   const root = asObject(input);
   if (!root) throw badRequest("备份文件格式不正确（不是 JSON 对象）。");
   if (root.app !== undefined && root.app !== "novel-continuation") {
@@ -95,6 +98,7 @@ export async function restoreProjectFromExport(input: unknown): Promise<RestoreS
   const name = await uniqueProjectName(baseName);
   const project = await prisma.novelProject.create({
     data: {
+      ownerId: user.id,
       name,
       language: clip(projectMeta?.language, "zh", 20),
       genre: strOrNull(projectMeta?.genre),

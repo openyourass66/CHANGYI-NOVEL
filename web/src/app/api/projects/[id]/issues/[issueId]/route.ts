@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { handleError, ok, readJson } from "@/lib/api";
 import { getIssue, updateIssue } from "@/lib/continuation";
 import { isIssueStatus } from "@/lib/continuation-view";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string; issueId: string }> };
 
-export async function GET(_request: Request, { params }: Ctx) {
+async function handleGET(_request: Request, { params }: Ctx) {
   try {
     const { issueId } = await params;
     const issue = await getIssue(issueId);
@@ -18,7 +19,7 @@ export async function GET(_request: Request, { params }: Ctx) {
   }
 }
 
-export async function PATCH(request: Request, { params }: Ctx) {
+async function handlePATCH(request: Request, { params }: Ctx) {
   try {
     const { issueId } = await params;
     const body = (await readJson(request)) as { status?: string };
@@ -32,3 +33,6 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("project", handleGET);
+export const PATCH = withAccount("project", handlePATCH);

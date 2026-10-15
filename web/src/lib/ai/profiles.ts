@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { requireUser } from "@/lib/auth-session";
 import { decryptSecret, encryptSecret, maskSecret } from "@/lib/crypto";
 import { LOCAL_PROVIDERS, MODEL_PROVIDER, type ModelProvider } from "@/lib/domain";
 
@@ -33,8 +34,7 @@ export type ProfileView = {
 };
 
 export function resolveIsLocal(provider: ModelProvider, explicit?: boolean): boolean {
-  if (typeof explicit === "boolean") return explicit;
-  return LOCAL_PROVIDERS.includes(provider);
+  return LOCAL_PROVIDERS.includes(provider) || explicit === true;
 }
 
 function toView(p: {
@@ -75,26 +75,32 @@ function toView(p: {
 }
 
 export async function listProfiles(): Promise<ProfileView[]> {
+  const user = await requireUser();
   const rows = await prisma.modelProfile.findMany({
+    where: { userId: user.id },
     orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
   });
   return rows.map(toView);
 }
 
 export async function getProfile(id: string) {
-  return prisma.modelProfile.findUnique({ where: { id } });
+  const user = await requireUser();
+  return prisma.modelProfile.findFirst({ where: { id, userId: user.id } });
 }
 
 export async function createProfile(input: ProfileInput): Promise<ProfileView> {
+  const user = await requireUser();
   const isLocal = resolveIsLocal(input.provider, input.isLocal);
   if (!isLocal && !input.apiKey?.trim()) {
     throw new Error("该供应商需要 API 密钥。");
   }
   const encrypted = input.apiKey?.trim() ? encryptSecret(input.apiKey.trim()) : null;
 
-  const count = await prisma.modelProfile.count();
+  const count = await prisma.modelProfile.count({ where: { userId: user.id } });
   const profile = await prisma.modelProfile.create({
     data: {
+      userId: user.id,
+      executionLocation: isLocal ? "device" : "server",
       name: input.name,
       provider: input.provider,
       model: input.model,
@@ -111,7 +117,7 @@ export async function updateProfile(
   id: string,
   input: Partial<ProfileInput> & { clearApiKey?: boolean },
 ): Promise<ProfileView> {
-  const existing = await prisma.modelProfile.findUnique({ where: { id } });
+  const existing = await getProfile(id);
   if (!existing) throw new Error("档案不存在。");
 
   const provider = (input.provider ?? existing.provider) as ModelProvider;
@@ -137,17 +143,19 @@ export async function updateProfile(
         input.baseUrl === undefined ? existing.baseUrl : input.baseUrl.trim() || null,
       apiKeyEncrypted,
       isLocal,
+      executionLocation: isLocal ? "device" : "server",
     },
   });
   return toView(profile);
 }
 
 export async function deleteProfile(id: string): Promise<void> {
-  const existing = await prisma.modelProfile.findUnique({ where: { id } });
+  const user = await requireUser();
+  const existing = await getProfile(id);
   if (!existing) return;
   await prisma.modelProfile.delete({ where: { id } });
   if (existing.isDefault) {
-    const next = await prisma.modelProfile.findFirst({ orderBy: { updatedAt: "desc" } });
+    const next = await prisma.modelProfile.findFirst({ where: { userId: user.id }, orderBy: { updatedAt: "desc" } });
     if (next) {
       await prisma.modelProfile.update({ where: { id: next.id }, data: { isDefault: true } });
     }
@@ -155,8 +163,10 @@ export async function deleteProfile(id: string): Promise<void> {
 }
 
 export async function setDefaultProfile(id: string): Promise<void> {
+  const user = await requireUser();
+  if (!(await getProfile(id))) throw new Error("档案不存在。");
   await prisma.$transaction([
-    prisma.modelProfile.updateMany({ data: { isDefault: false } }),
+    prisma.modelProfile.updateMany({ where: { userId: user.id }, data: { isDefault: false } }),
     prisma.modelProfile.update({ where: { id }, data: { isDefault: true } }),
   ]);
 }
@@ -167,6 +177,7 @@ export async function recordProfileCheck(
   ok: boolean,
   note: string,
 ): Promise<ProfileView> {
+  if (!(await getProfile(id))) throw new Error("档案不存在。");
   const profile = await prisma.modelProfile.update({
     where: { id },
     data: { statusNote: `${ok ? "✓ 正常" : "✗ 失败"}：${note}`.slice(0, 200), lastCheckedAt: new Date() },
@@ -176,7 +187,7 @@ export async function recordProfileCheck(
 
 /** 仅服务端调用：取出明文密钥用于请求，绝不经由 API 返回客户端。 */
 export async function resolveApiKey(id: string): Promise<string | null> {
-  const p = await prisma.modelProfile.findUnique({ where: { id } });
+  const p = await getProfile(id);
   if (!p?.apiKeyEncrypted) return null;
   return decryptSecret(p.apiKeyEncrypted);
 }

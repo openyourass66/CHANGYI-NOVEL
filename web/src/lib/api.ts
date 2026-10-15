@@ -18,6 +18,7 @@ export function handleError(error: unknown) {
     });
   }
   if (error instanceof Error) {
+    if (error.name.startsWith("PrismaClient")) return fail("数据操作失败，请稍后重试。", 500);
     const status = (error as { status?: unknown }).status;
     return fail(error.message, typeof status === "number" ? status : 400);
   }

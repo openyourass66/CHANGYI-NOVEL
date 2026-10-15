@@ -14,4 +14,4 @@ pnpm exec prisma migrate deploy
 pnpm dev
 ```
 
-首次启动前，请按根目录 README 的说明设置 `.env` 中的 `APP_ENCRYPTION_KEY`。
+首次启动前，请按根目录 README 的说明设置 `.env` 中的 `APP_ENCRYPTION_KEY`、`BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`、`REDIS_URL` 和 SMTP 配置；注册时通过邮件验证码验证邮箱后登录。已有项目需要显式认领。虚拟机使用独立 `.env.vm`，操作步骤见 [部署说明](deploy/README.md)。

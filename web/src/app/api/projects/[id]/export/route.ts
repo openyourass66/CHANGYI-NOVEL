@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { fail, handleError } from "@/lib/api";
 import { buildProjectExport, buildSourceText, exportFileName } from "@/lib/export";
 import { getProject } from "@/lib/projects";
@@ -19,7 +20,7 @@ function attachment(body: string, fileName: string, contentType: string) {
   });
 }
 
-export async function GET(request: Request, { params }: Ctx) {
+async function handleGET(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const project = await getProject(id);
@@ -47,3 +48,5 @@ export async function GET(request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("project", handleGET);

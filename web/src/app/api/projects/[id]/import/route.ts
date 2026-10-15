@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { fail, handleError, ok } from "@/lib/api";
 import { importSource } from "@/lib/import/service";
 import { MAX_FILE_BYTES } from "@/lib/import/parsers";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(request: Request, { params }: Ctx) {
+async function handlePOST(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const form = await request.formData();
@@ -25,3 +26,5 @@ export async function POST(request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const POST = withAccount("project", handlePOST);

@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { z } from "zod";
 import { fail, handleError, ok, readJson } from "@/lib/api";
 import { listMemoryHistory, updateMemoryEntry } from "@/lib/memory";
@@ -9,7 +10,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const restoreSchema = z.object({ revision: z.number().int().min(1) });
 
-export async function GET(_request: Request, { params }: Ctx) {
+async function handleGET(_request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     return ok({ history: await listMemoryHistory(id) });
@@ -19,7 +20,7 @@ export async function GET(_request: Request, { params }: Ctx) {
 }
 
 /** 恢复历史版本：以该版本内容生成一个新的当前版本，保留完整修订记录。 */
-export async function POST(request: Request, { params }: Ctx) {
+async function handlePOST(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const { revision } = restoreSchema.parse(await readJson(request));
@@ -39,3 +40,6 @@ export async function POST(request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("memory", handleGET);
+export const POST = withAccount("memory", handlePOST);

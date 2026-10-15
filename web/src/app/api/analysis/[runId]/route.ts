@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { fail, handleError, ok } from "@/lib/api";
 import { getRunProgress } from "@/lib/ai/runner";
 
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ runId: string }> };
 
-export async function GET(_request: Request, { params }: Ctx) {
+async function handleGET(_request: Request, { params }: Ctx) {
   try {
     const { runId } = await params;
     const run = await getRunProgress(runId);
@@ -16,3 +17,5 @@ export async function GET(_request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("run", handleGET);

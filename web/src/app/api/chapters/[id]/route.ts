@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { fail, handleError, ok, readJson } from "@/lib/api";
 import {
   chapterUpdateSchema,
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, { params }: Ctx) {
+async function handleGET(_request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const chapter = await getChapterView(id);
@@ -22,7 +23,7 @@ export async function GET(_request: Request, { params }: Ctx) {
   }
 }
 
-export async function PATCH(request: Request, { params }: Ctx) {
+async function handlePATCH(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const input = chapterUpdateSchema.parse(await readJson(request));
@@ -32,7 +33,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Ctx) {
+async function handleDELETE(_request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     await deleteChapter(id);
@@ -41,3 +42,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const GET = withAccount("chapter", handleGET);
+export const PATCH = withAccount("chapter", handlePATCH);
+export const DELETE = withAccount("chapter", handleDELETE);

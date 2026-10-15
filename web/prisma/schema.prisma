@@ -1,6 +1,5 @@
 // 小说理解与续写 App — 领域模型
-// SQLite 单用户本机 demo。SQLite 不支持 enum / 数组，枚举值以 String 存储并集中定义于
-// src/lib/domain/*。ownerId 字段为未来多用户/租户隔离预留，demo 中恒为 null。
+// SQLite 本机开发。旧数据允许空归属，只有显式认领后才对账号可见。
 
 generator client {
   provider = "prisma-client-js"
@@ -11,6 +10,69 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  projects      NovelProject[]
+  modelProfiles ModelProfile[]
+}
+
+model Session {
+  id        String   @id
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Account {
+  id                     String    @id
+  accountId              String
+  providerId             String
+  userId                 String
+  password               String?
+  accessToken            String?
+  refreshToken           String?
+  idToken                String?
+  accessTokenExpiresAt   DateTime?
+  refreshTokenExpiresAt  DateTime?
+  scope                  String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  @@index([identifier])
+}
+
+model RateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+}
+
 /// 小说项目
 model NovelProject {
   id              String   @id @default(cuid())
@@ -18,7 +80,8 @@ model NovelProject {
   language        String   @default("zh")
   genre           String? // 体裁，未知则 null
   preferencesJson String   @default("{}")
-  ownerId         String? // 预留：未来云端认证的用户/租户归属
+  ownerId         String? // 仅本机 SQLite 兼容待认领旧数据；PostgreSQL 中必填
+  owner           User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -86,6 +149,9 @@ model Chapter {
 /// 模型配置档案（密钥本机加密，绝不进入客户端包或项目导出）
 model ModelProfile {
   id              String    @id @default(cuid())
+  userId          String? // 仅本机 SQLite 兼容待认领旧数据
+  user            User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  executionLocation String  @default("server") // server | device
   name            String
   provider        String // openai-compatible | anthropic | ollama | lmstudio | ...
   model           String
@@ -102,6 +168,7 @@ model ModelProfile {
   analysisRuns AnalysisRun[]
 
   @@index([isDefault])
+  @@index([userId])
 }
 
 /// 分析任务运行记录

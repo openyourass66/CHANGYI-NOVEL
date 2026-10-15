@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { handleError, ok, readJson } from "@/lib/api";
 import { deletePlan, getPlan, updatePlan, type PlanPatch } from "@/lib/continuation";
 import { parseOutline, parseStringArray, type OutlineItem } from "@/lib/continuation-view";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string; planId: string }> };
 
-export async function GET(_request: Request, { params }: Ctx) {
+async function handleGET(_request: Request, { params }: Ctx) {
   try {
     const { planId } = await params;
     const plan = await getPlan(planId);
@@ -18,7 +19,7 @@ export async function GET(_request: Request, { params }: Ctx) {
   }
 }
 
-export async function PATCH(request: Request, { params }: Ctx) {
+async function handlePATCH(request: Request, { params }: Ctx) {
   try {
     const { planId } = await params;
     const body = (await readJson(request)) as {
@@ -49,7 +50,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Ctx) {
+async function handleDELETE(_request: Request, { params }: Ctx) {
   try {
     const { planId } = await params;
     await deletePlan(planId);
@@ -83,3 +84,7 @@ function normalizeOutlineInput(value: unknown): OutlineItem[] {
   });
   return items;
 }
+
+export const GET = withAccount("project", handleGET);
+export const PATCH = withAccount("project", handlePATCH);
+export const DELETE = withAccount("project", handleDELETE);

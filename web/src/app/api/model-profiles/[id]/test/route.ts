@@ -1,3 +1,5 @@
+import { withAccount } from "@/lib/access";
+import { requireUser } from "@/lib/auth-session";
 import { fail, handleError, ok } from "@/lib/api";
 import { resolveProfile, runChat } from "@/lib/ai/client";
 import { recordProfileCheck } from "@/lib/ai/profiles";
@@ -8,11 +10,12 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 /** 连接测试：发一个极小请求，验证地址与密钥可用。 */
-export async function POST(_request: Request, { params }: Ctx) {
+async function handlePOST(_request: Request, { params }: Ctx) {
   const { id } = await params;
   let profile;
   try {
-    profile = await resolveProfile(id);
+    const user = await requireUser();
+    profile = await resolveProfile(id, user.id);
   } catch (error) {
     return handleError(error);
   }
@@ -30,3 +33,5 @@ export async function POST(_request: Request, { params }: Ctx) {
     return fail(message, 502);
   }
 }
+
+export const POST = withAccount("profile", handlePOST);

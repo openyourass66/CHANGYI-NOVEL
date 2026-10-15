@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { handleError, ok } from "@/lib/api";
 import { setDefaultProfile } from "@/lib/ai/profiles";
 
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(_request: Request, { params }: Ctx) {
+async function handlePOST(_request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     await setDefaultProfile(id);
@@ -15,3 +16,5 @@ export async function POST(_request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const POST = withAccount("profile", handlePOST);

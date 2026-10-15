@@ -1,3 +1,4 @@
+import { requirePageUser } from "@/lib/auth-session";
 import { notFound } from "next/navigation";
 import { listChapterSummaries } from "@/lib/chapters";
 import { getProjectWorkspace } from "@/lib/projects";
@@ -14,6 +15,7 @@ export default async function MemoryPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ entry?: string }>;
 }) {
+  await requirePageUser();
   const { id } = await params;
   const { entry } = await searchParams;
   const workspace = await getProjectWorkspace(id);

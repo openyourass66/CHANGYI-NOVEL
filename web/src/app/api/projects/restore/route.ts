@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { fail, handleError, ok } from "@/lib/api";
 import { restoreProjectFromExport } from "@/lib/restore";
 
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 const MAX_BACKUP_BYTES = 200 * 1024 * 1024; // 200MB
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const form = await request.formData();
     const file = form.get("file");
@@ -30,3 +31,5 @@ export async function POST(request: Request) {
     return handleError(error);
   }
 }
+
+export const POST = withAccount("account", handlePOST);

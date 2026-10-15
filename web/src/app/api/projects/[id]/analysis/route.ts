@@ -1,3 +1,4 @@
+import { withAccount } from "@/lib/access";
 import { handleError, ok, readJson } from "@/lib/api";
 import { startAnalysisRun } from "@/lib/ai/runner";
 import type { RunPayload } from "@/lib/ai/tasks/types";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(request: Request, { params }: Ctx) {
+async function handlePOST(request: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const body = (await readJson(request)) as {
@@ -29,3 +30,5 @@ export async function POST(request: Request, { params }: Ctx) {
     return handleError(error);
   }
 }
+
+export const POST = withAccount("project", handlePOST);
