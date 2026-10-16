@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { createServer } from "vite";
+import { prepareTarget } from "./prepare-target.mjs";
+prepareTarget();
 const server=await createServer();await server.listen();
 const env={...process.env,CHANGYI_DEV_URL:"http://127.0.0.1:5173"};delete env.ELECTRON_RUN_AS_NODE;
 const {default:electron}=await import("electron");

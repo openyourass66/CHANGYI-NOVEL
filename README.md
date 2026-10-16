@@ -87,7 +87,7 @@ docker compose --env-file .env.vm logs -f app
 
 ## Windows 客户端
 
-客户端入口位于 `desktop/`，源码开发、连接服务、本机模型、Windows 安装包和检查命令见 [客户端说明](desktop/README.md)。首次连接前先更新服务端源码并备份、应用数据库迁移；新增的设备推理工作表同时提供 SQLite 和 PostgreSQL migration。Docker 启动时自动应用 PostgreSQL migration。
+客户端入口位于 `desktop/`，安装包用户安装后直接登录，无需配置服务地址或本机开发环境。当前开发版固定连接 `http://192.168.150.102:3000`；未来生产版由维护者在打包时指定 HTTPS 云服务器地址。源码开发、本机模型、Windows 安装包和检查命令见 [客户端说明](desktop/README.md)。首次连接前先更新服务端源码并备份、应用数据库迁移；新增的设备推理工作表同时提供 SQLite 和 PostgreSQL migration。Docker 启动时自动应用 PostgreSQL migration。
 
 网页和桌面复用工作台组件，桌面运行时只加载本地打包资源，通过 `/api/v1` 访问服务，不需要安装 Node.js 或数据库。云端模型密钥留在服务端；本机模型密钥和登录 Cookie 使用 Windows 安全存储加密保存，不返回页面。项目数据集中存储在服务端，目前没有离线编辑和双向同步。
 

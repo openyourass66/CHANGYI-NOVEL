@@ -30,7 +30,7 @@ test("native cookies remain private, scoped, revocable, and redirects are refuse
   assert(!JSON.stringify(login.headers).includes("signed-private-token"));
   stage="normal";await api.request({path:"/api/v1/projects",method:"GET"});
   stage="other";vault.state.serverURL="https://two.example";await api.request({path:"/api/v1/projects",method:"GET"});
-  vault.state.serverURL="https://one.example";stage="redirect";await assert.rejects(api.request(input),/重定向/);
+  vault.state.serverURL="https://one.example";stage="redirect";await assert.rejects(api.request(input),/连接发生异常/);
   stage="logout";await api.request(input);assert.deepEqual(vault.state.servers["https://one.example"].cookies,{});
 });
 test("local concurrency slots are reserved before asynchronous account checks",async()=>{

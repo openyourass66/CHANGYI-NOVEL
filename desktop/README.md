@@ -2,7 +2,11 @@
 
 桌面应用使用本地打包的 React 工作台，通过 `/api/v1` 连接服务端。账号、小说正文和生成结果保存在服务端；Ollama / LM Studio 在当前 Windows 设备执行。浏览器工作台保留，桌面运行时不启动 Next.js、Prisma、数据库、Redis 或 SMTP。
 
-## 开发和运行
+## 安装包使用
+
+安装 `Changyi-0.1.1-Setup.exe` 后打开长忆，直接使用邮箱账号登录。无需安装 Node.js、数据库或配置服务地址。当前开发版固定连接 `http://192.168.150.102:3000`，需要电脑能够访问该虚拟机；服务不可用时登录页显示提示，可点击「重试连接」。虚拟机必须先部署支持 `/api/v1` 的新版服务端。
+
+## 源码开发和打包
 
 需要 Node.js 22.20+、pnpm 11.1.1、Windows x64。源码阶段复用 `../web/src/components`，先安装两侧依赖：
 
@@ -14,9 +18,23 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` 启动本机 Vite 并打开 Electron。服务端独立运行；也可以连接更新后的虚拟机服务。首次启动填写服务根地址，例如 `http://192.168.150.102:3000`，然后使用邮箱账号登录。HTTP 限于本机和私有网络自测，其他地址要求 HTTPS。登录后使用项目库、导入、章节阅读、分析、记忆、续写和导出。
+`pnpm dev` 启动本机 Vite 并打开 Electron，默认连接上述虚拟机服务。登录后使用项目库、导入、章节阅读、分析、记忆、续写和导出。
 
-生产界面构建与运行：`pnpm build`，然后 `pnpm start`。Windows 安装包：`pnpm pack:win`，输出到 `release/Changyi-0.1.0-Setup.exe` 并生成 SHA-256 文件；打包后自动核对运行代码、界面产物和私有文件排除情况，可用 `pnpm check:package` 重复检查。当前是未签名的自测安装包，尚未配置自动更新或发布渠道；不上传安装包、凭据或小说到 Git。
+打包界面构建与运行：`pnpm build`，然后 `pnpm start`。Windows 安装包：`pnpm pack:win`，输出到 `release/Changyi-0.1.1-Setup.exe` 并生成 SHA-256 文件；打包后自动核对运行代码、界面产物、内置服务地址和私有文件排除情况，可用 `pnpm check:package` 重复检查。当前是未签名的自测安装包，尚未配置自动更新或发布渠道；不上传安装包、凭据或小说到 Git。
+
+### 发布地址由维护者指定
+
+`config/servers.json` 维护开发与生产目标；构建时将所选地址写入安装包的 `runtime/server-target.json`。普通用户没有地址设置入口，旧版本保存的手动地址也不会覆盖新安装包内置地址。
+
+默认渠道为 `development`，使用虚拟机 HTTP 地址。未来云服务器就绪后，维护者填写 `config/servers.json` 的 `production`，或在专用打包终端指定实际云服务地址：
+
+```powershell
+$env:CHANGYI_BUILD_CHANNEL = "production"
+$env:CHANGYI_PRODUCTION_SERVER_URL = "https://your-cloud-domain.example"
+pnpm pack:win
+```
+
+生产构建缺少地址或使用 HTTP 时会失败；运行时环境变量不能修改已安装客户端的目标。更换服务器后由维护者重新发布安装包，用户安装更新即可。
 
 ## 本机模型
 
@@ -30,7 +48,7 @@ pnpm dev
 
 登录 Cookie 和本机模型密钥由主进程管理，通过 Electron `safeStorage` 使用 Windows 系统加密后保存在 `app.getPath("userData")` 下；没有明文存储降级。页面收不到 Cookie、认证 token 或本机 API 密钥。加密文件不能作为跨 Windows 账号迁移凭据的方式。
 
-客户端启用 sandbox、contextIsolation 和 webSecurity，关闭 nodeIntegration；只加载本地打包的界面，限制 IPC 来源、请求路径、导航和新窗口。服务地址由用户设置，原生网络层仅向这一地址发送账号 Cookie，拒绝重定向；本地推理使用独立请求，不携带账号 Cookie。
+客户端启用 sandbox、contextIsolation 和 webSecurity，关闭 nodeIntegration；只加载本地打包的界面，限制 IPC 来源、请求路径、导航和新窗口。服务地址由构建产物固定，原生网络层仅向这一地址发送账号 Cookie，拒绝重定向；本地推理使用独立请求，不携带账号 Cookie。
 
 ## 检查
 
@@ -40,7 +58,7 @@ pnpm build
 pnpm smoke
 ```
 
-`check` 检查目的地址、路径、Cookie 隔离、登出和重定向边界。`smoke` 用独立临时目录、内存 HTTP 服务和模拟模型启动隐藏窗口，检查实际打包界面、沙箱、Windows 凭据加密、登录恢复和本机推理；不访问真实小说。
+`check` 检查发布目标、路径、Cookie 隔离、登出和重定向边界。`smoke` 用独立临时目录、内存 HTTP 服务和模拟模型启动隐藏窗口，检查直接登录、无地址设置、断线重试、错误提示、沙箱、Windows 凭据加密、登录恢复和本机推理；不访问真实小说。隔离检查仅允许未打包的 Electron 显式启用检查模式后连接临时回环服务，安装包始终使用内置地址。
 
 完整桌面到服务端联调：先构建两侧，然后在 `web/` 执行 `pnpm verify:desktop`。它建立隔离 SQLite、认证 Redis 协议测试替身和本机模型替身，通过真实 Next.js API 与 Electron 走通登录、multipart 导入、阅读、设备任务执行、提案、记忆编辑、续写视图和导出。测试结果与截图保存在各侧 `.verify/`；真实 PostgreSQL、Redis、SMTP、外部模型供应商和 Ollama/LM Studio 仍需在目标环境实测。
 

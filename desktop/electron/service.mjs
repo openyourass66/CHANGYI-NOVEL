@@ -15,9 +15,9 @@ export function service(vault, fetchImpl = fetch) {
     const cookies=Object.entries(store.cookies).filter(([,c])=>c.expires>Date.now()&&(!c.secure||url.protocol==="https:")).map(([k,c])=>`${k}=${c.value}`).join("; ");
     if(cookies) headers.Cookie=cookies;
     let response;
-    try { response=await fetchImpl(url,{method:input.method,headers,body:input.body ? Buffer.from(input.body) : undefined,redirect:"manual",signal:AbortSignal.timeout(120_000)}); }
-    catch { throw new Error("无法连接服务，请检查地址和网络后重试。"); }
-    if(response.status>=300&&response.status<400) throw new Error("服务返回了重定向，请核对服务地址。");
+    try { response=await fetchImpl(url,{method:input.method,headers,body:input.body ? Buffer.from(input.body) : undefined,redirect:"manual",signal:AbortSignal.timeout(url.pathname==="/api/v1/health"?8000:120_000)}); }
+    catch { throw new Error("暂时无法连接服务，请检查网络或稍后重试。"); }
+    if(response.status>=300&&response.status<400) throw new Error("服务连接发生异常，请稍后重试。");
     const setCookies=response.headers.getSetCookie();
     for(const line of setCookies){
       const [pair,...attrs]=line.split(";");const index=pair.indexOf("=");const name=pair.slice(0,index).trim();

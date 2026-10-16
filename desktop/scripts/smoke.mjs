@@ -3,10 +3,15 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { prepareTarget } from "./prepare-target.mjs";
+prepareTarget();
 const profile=path.resolve(".verify",randomUUID());await mkdir(profile,{recursive:true});
+let healthy=false;
 const server=createServer(async(request,response)=>{
   const url=new URL(request.url,"http://localhost");
   response.setHeader("Content-Type","application/json");
+  if(url.pathname==="/api/v1/health"){response.statusCode=healthy?200:503;response.end(JSON.stringify({status:healthy?"ok":"unavailable"}));return;}
+  if(url.pathname==="/api/v1/test/ready"){healthy=true;response.end('{"ok":true}');return;}
   if(url.pathname==="/api/v1/auth/sign-in/email"){
     response.setHeader("Set-Cookie","better-auth.session_token=native-private-smoke-token; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600");
     response.end(JSON.stringify({token:"raw-private-smoke-token",user:{id:"smoke-user",name:"测试用户",email:"test@example.test",emailVerified:true}}));return;

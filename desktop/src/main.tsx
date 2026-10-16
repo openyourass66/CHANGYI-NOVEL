@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { HashRouter, Navigate, useLocation } from "react-router-dom";
 import type { DesktopConfiguration } from "@contracts/desktop";
 import type { ProjectSummary } from "@contracts/api";
-import type { SettingsView, WorkspaceKind, WorkspaceView as WorkspaceData } from "@contracts/workspace";
+import type { SettingsView, WorkspaceView as WorkspaceData } from "@contracts/workspace";
 import { apiJson } from "@/lib/client-api";
 import { authClient } from "@/lib/auth-client";
 import { AppShell } from "@/components/app-shell";
@@ -14,19 +14,23 @@ import { ProjectLibrary } from "@/components/projects/project-library";
 import { WorkspaceView } from "@/components/projects/workspace-view";
 import { SettingsPanel } from "@/components/settings/settings-panel";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { RefreshContext } from "./navigation";
 import { DeviceWorker } from "./worker";
 import "./style.css";
 
-function Connection({ initial, done }: { initial?: string; done: (config: DesktopConfiguration) => void }) {
-  const [url,setURL]=useState(initial??"");const [error,setError]=useState("");const [busy,setBusy]=useState(false);
-  return <form className="mx-auto mt-20 max-w-lg space-y-4 rounded-xl border p-6" onSubmit={async(event)=>{
-    event.preventDefault();setBusy(true);setError("");
-    try{const config=await window.changyi!.configure(url.trim());await apiJson("/api/v1/health");done(config);}
-    catch(error){setError(error instanceof Error?error.message:"连接失败。");}finally{setBusy(false);}
-  }}><h1 className="text-xl font-semibold">连接长忆服务</h1><p className="text-sm text-muted-foreground">填写服务地址，登录后即可访问你的小说项目。</p><Label htmlFor="serverURL">服务地址</Label><Input id="serverURL" type="url" required value={url} onChange={e=>setURL(e.target.value)} placeholder="https://novel.example.com" disabled={busy}/><p className="text-xs text-muted-foreground">私有网络自测可填写虚拟机的 HTTP 地址。</p>{error&&<p role="alert" className="text-sm text-destructive">{error}</p>}<Button disabled={busy}>{busy?"正在连接…":"连接服务"}</Button></form>;
+function ConnectionStatus() {
+  const [status,setStatus]=useState<"checking"|"ready"|"unavailable">("checking");
+  const [attempt,setAttempt]=useState(0);
+  useEffect(()=>{
+    let active=true;
+    void apiJson("/api/v1/health").then(()=>{if(active)setStatus("ready");}).catch(()=>{if(active)setStatus("unavailable");});
+    return()=>{active=false;};
+  },[attempt]);
+  if(status==="ready")return null;
+  return <div role={status==="unavailable"?"alert":"status"} className="flex items-center justify-center gap-3 border-b bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
+    <span>{status==="checking"?"正在连接服务…":"暂时无法连接服务，请检查网络或稍后重试。"}</span>
+    {status==="unavailable"&&<Button variant="outline" size="sm" onClick={()=>{setStatus("checking");setAttempt(value=>value+1);}}>重试连接</Button>}
+  </div>;
 }
 
 function RemotePage({ revision }: { revision: number }) {
@@ -55,17 +59,17 @@ function Screens({config}: {config: DesktopConfiguration}) {
   const query=new URLSearchParams(location.search),requested=query.get("mode");
   const mode:AccountMode=requested==="register"||requested==="forgot"?requested:"login";
   return <RefreshContext.Provider value={refresh}><AppShell>
-    {location.pathname==="/login"?<AccountForm key={mode} mode={mode}/>:session.isPending?<p className="p-8" role="status">正在读取账号…</p>:!session.data?<Navigate to="/login" replace/>:<RemotePage revision={revision}/>}
+    {location.pathname==="/login"?(session.data?<Navigate to="/" replace/>:<AccountForm key={mode} mode={mode}/>):session.isPending?<p className="p-8" role="status">正在读取账号…</p>:!session.data?<Navigate to="/login" replace/>:<RemotePage revision={revision}/>}
     <DeviceWorker deviceId={config.deviceId} userId={session.data?.user.id}/>
   </AppShell></RefreshContext.Provider>;
 }
 function App(){
-  const [configuration,setConfiguration]=useState<DesktopConfiguration|null>(null),[editing,setEditing]=useState(false),[error,setError]=useState("");
-  useEffect(()=>{if(!window.changyi){setError("请通过桌面应用打开工作台。");return;}void window.changyi.configuration().then(setConfiguration).catch(()=>setError("无法读取本机连接配置。"));},[]);
+  const [configuration,setConfiguration]=useState<DesktopConfiguration|null>(null),[error,setError]=useState("");
+  useEffect(()=>{if(!window.changyi){setError("请通过桌面应用打开工作台。");return;}void window.changyi.configuration().then(setConfiguration).catch(()=>setError("无法启动客户端，请重新打开后重试。"));},[]);
   if(error)return <p role="alert" className="p-8">{error}</p>;
   if(!configuration)return <p role="status" className="p-8">正在启动…</p>;
-  return <ThemeProvider attribute="class" defaultTheme="system" enableSystem><div className="flex items-center justify-between border-b px-4 py-1 text-xs text-muted-foreground"><span>{configuration.serverURL||"尚未连接服务"}</span><button className="rounded px-2 py-1 hover:bg-accent" onClick={()=>setEditing(!editing)}>{editing?"返回工作台":"更换服务"}</button></div>
-    {!configuration.serverURL||editing?<Connection initial={configuration.serverURL} done={config=>{setConfiguration(config);setEditing(false);window.location.hash="/login";window.location.reload();}}/>:<HashRouter><Screens config={configuration}/></HashRouter>}<Toaster position="bottom-right"/>
+  return <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <HashRouter><ConnectionStatus/><Screens config={configuration}/></HashRouter><Toaster position="bottom-right"/>
   </ThemeProvider>;
 }
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App/></React.StrictMode>);
