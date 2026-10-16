@@ -1,4 +1,7 @@
 "use client";
+import { DownloadLink } from "@/components/download-link";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -92,7 +95,7 @@ export function MemoryWorkbench({
         const p = new URLSearchParams();
         if (nextCategory !== ALL) p.set("category", nextCategory);
         if (nextQuery.trim()) p.set("q", nextQuery.trim());
-        const res = await fetch(`/api/projects/${projectId}/memory?${p.toString()}`, {
+        const res = await apiFetch(`/api/projects/${projectId}/memory?${p.toString()}`, {
           cache: "no-store",
         });
         const data = (await res.json()) as MemoryListResponse;
@@ -154,10 +157,10 @@ export function MemoryWorkbench({
             }}
           />
           <Button variant="outline" size="sm" asChild>
-            <a href={`/api/projects/${projectId}/memory/export`}>
+            <DownloadLink href={`/api/projects/${projectId}/memory/export`}>
               <Download className="size-4" aria-hidden />
               导出记忆（Markdown）
-            </a>
+            </DownloadLink>
           </Button>
         </div>
       </header>

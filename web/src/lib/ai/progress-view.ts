@@ -2,7 +2,7 @@
  * 运行进度的纯展示派生。与运行器解耦、无副作用，便于在 mock 端到端脚本里直接断言，
  * 也让两个面板共用同一套「进度怎么说人话」的逻辑。
  */
-import type { RunStatusView, RunUnitView } from "@/lib/ai/runner";
+import type { RunStatusView, RunUnitView } from "@contracts/api";
 
 /** 步骤在轨道上的状态。stalled＝视图层的「进程失联但 DB 仍是 running」。 */
 export type StageStatus = "todo" | "running" | "done" | "failed" | "stalled";

@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -35,7 +37,7 @@ export function ImportPanel({
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`/api/projects/${projectId}/import`, {
+      const res = await apiFetch(`/api/projects/${projectId}/import`, {
         method: "POST",
         body: form,
       });

@@ -70,6 +70,8 @@ pnpm verify:postgres-types
 
 ## Docker 本机自测部署
 
+账号/API 验证默认启动独立的内存 RESP 测试替身，用于检查 Redis 客户端交互和隔离行为，不连接真实认证 Redis。通过 `VERIFY_REDIS_URL` 可指定专用 Redis 实测；部署环境仍需验证真实 Redis 的持久性与过期行为。
+
 `web/compose.yaml` 提供 Next.js 生产构建、PostgreSQL 16、健康检查、自动重启和日志轮转，并连接虚拟机已有的 Redis。数据库及应用文件分别保存在 Docker 持久卷中，数据库不发布宿主机端口，应用默认只绑定 `127.0.0.1:3000`。当前仅供本人本机自测；CentOS 7 不开放公网。部署前核对宿主机内核与 Docker/Compose，具体步骤见 [部署、数据迁移与恢复说明](web/deploy/README.md)。
 
 在 `web/` 目录复制生产环境变量示例并分别生成数据库密码和加密密钥，然后启动：
@@ -95,6 +97,10 @@ docker compose --env-file .env.vm logs -f app
 - 已有草稿的续写方向不能直接重生成章纲；请先导出并删除该方向的草稿，避免旧草稿与新章纲错配。
 
 ## 项目结构
+
+客户端拆分分支已整理 `/api/v1` 业务接口，以及供网页和桌面共用的 `packages/contracts` 数据类型。工作台数据接口为 `/api/v1/workspaces/:id?view=chapters|analysis|memory|continuation`，设置接口为 `/api/v1/settings`，认证入口为 `/api/v1/auth/*`；旧网页接口继续可用。所有业务接口沿用账号归属校验。共享类型不包含 Prisma、数据库、服务端文件路径或密钥。
+
+Docker 构建上下文现在为仓库根目录，通过根目录 `.dockerignore` 排除真实环境文件、数据库和客户端产物；继续在 `web/` 执行原有 Compose 命令。源码部署包包含 `packages/contracts`，更新时需要使用完整的新源码包。
 
 ```text
 .

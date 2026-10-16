@@ -25,7 +25,7 @@ import {
   type Tone,
 } from "@/lib/domain";
 import { cn } from "@/lib/utils";
-import type { RunStatusView } from "@/lib/ai/runner";
+import type { RunStatusView } from "@contracts/api";
 import {
   currentUnitOf,
   elapsedMs,

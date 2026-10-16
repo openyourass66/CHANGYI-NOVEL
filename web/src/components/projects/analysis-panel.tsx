@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -33,10 +35,10 @@ import {
   toneClass,
   type Tone,
 } from "@/lib/domain";
-import type { ProfileView } from "@/lib/ai/profiles";
-import type { RunStatusView } from "@/lib/ai/runner";
-import type { TaskSummary } from "@/lib/ai/tasks/registry";
-import type { ProposalKind, ProposalState, ProposalView } from "@/lib/ai/types";
+import type { ProfileView } from "@contracts/api";
+import type { RunStatusView } from "@contracts/api";
+import type { TaskSummary } from "@contracts/api";
+import type { ProposalKind, ProposalState, ProposalView } from "@contracts/api";
 import { REQUIREMENT_HINT, requirementMet } from "@/lib/ai/requirements";
 import { stageStatusOf, stageMetaOf } from "@/lib/ai/progress-view";
 import { ProjectNav } from "@/components/projects/project-nav";
@@ -119,7 +121,7 @@ export function AnalysisPanel({
 
   const refreshProposals = useCallback(async () => {
     try {
-      const res = await fetch(`/api/projects/${projectId}/proposals`, { cache: "no-store" });
+      const res = await apiFetch(`/api/projects/${projectId}/proposals`, { cache: "no-store" });
       const data = (await res.json()) as {
         proposals?: ProposalView[];
         counts?: Record<string, number>;
@@ -224,7 +226,7 @@ export function AnalysisPanel({
   async function act(id: string, action: "accept" | "reject") {
     setActing(id);
     try {
-      const res = await fetch(`/api/proposals/${id}/${action}`, { method: "POST" });
+      const res = await apiFetch(`/api/proposals/${id}/${action}`, { method: "POST" });
       const data = (await res.json()) as {
         proposal?: ProposalView;
         message?: string;
@@ -244,7 +246,7 @@ export function AnalysisPanel({
   async function acceptAll() {
     setActionBusy(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/proposals/accept-all`, {
+      const res = await apiFetch(`/api/projects/${projectId}/proposals/accept-all`, {
         method: "POST",
       });
       const data = (await res.json()) as {

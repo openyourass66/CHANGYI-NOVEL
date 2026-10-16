@@ -1,3 +1,5 @@
+import type { RunPreview } from "@contracts/api";
+export type { RunPreview } from "@contracts/api";
 import "server-only";
 import { prisma } from "@/lib/db";
 import { MODEL_PROVIDER } from "@/lib/domain";
@@ -6,20 +8,7 @@ import { AnalysisError } from "@/lib/ai/errors";
 import { getTask } from "@/lib/ai/tasks/registry";
 import type { RunPayload } from "@/lib/ai/tasks/types";
 
-export type RunPreview = {
-  taskType: string;
-  taskLabel: string;
-  provider: string;
-  providerLabel: string;
-  model: string;
-  isLocal: boolean;
-  unitCount: number;
-  unitLabel: string;
-  totalChars: number;
-  estimatedPromptChars: number;
-  sampleText: string;
-  note: string;
-};
+
 
 /**
  * 预览「将发送什么」，不发起任何请求。云端档案据此向用户展示数据流并请求授权。

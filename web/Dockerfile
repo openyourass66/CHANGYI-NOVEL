@@ -6,21 +6,22 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV NOVEL_STANDALONE_BUILD=1
 ENV DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build?schema=public
-WORKDIR /app
+WORKDIR /app/web
 
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY prisma ./prisma
-COPY prisma-postgresql ./prisma-postgresql
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+COPY web/prisma ./prisma
+COPY web/prisma-postgresql ./prisma-postgresql
+COPY packages/contracts /app/packages/contracts
 RUN pnpm install --frozen-lockfile --prod=false
 RUN pnpm db:generate:postgres
 
-COPY . .
+COPY web .
 RUN pnpm build
-RUN mkdir -p .next/standalone/.next && \
-    cp -r public .next/standalone/public && \
-    cp -r .next/static .next/standalone/.next/static
+RUN mkdir -p .next/standalone/web/.next && \
+    cp -r public .next/standalone/web/public && \
+    cp -r .next/static .next/standalone/web/.next/static
 
 ENV COREPACK_HOME=/app/.corepack
 ENV HOSTNAME=0.0.0.0
@@ -31,4 +32,4 @@ RUN corepack prepare pnpm@11.1.1 --activate && \
 USER node
 
 EXPOSE 3000
-CMD ["sh", "-c", "pnpm db:migrate:postgres && node .next/standalone/server.js"]
+CMD ["sh", "-c", "pnpm db:migrate:postgres && node .next/standalone/web/server.js"]

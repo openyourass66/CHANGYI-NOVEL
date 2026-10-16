@@ -1,3 +1,5 @@
+import type { Progress, RunUnitView, RunStatusView } from "@contracts/api";
+export type { Progress, RunUnitView, RunStatusView } from "@contracts/api";
 import "server-only";
 import { prisma } from "@/lib/db";
 import { resolveProfile } from "@/lib/ai/client";
@@ -25,19 +27,7 @@ export function isProcessing(runId: string): boolean {
   return RUNNING.has(runId);
 }
 
-type Progress = {
-  batchIndex: number;
-  batchTotal: number;
-  unitsDone: number;
-  unitsTotal: number;
-  produced: number;
-  errors: string[];
-  /** 本次任务已处理的单元，用于中断后 resume 时避免重复处理（不影响新任务重跑）。 */
-  doneIds: string[];
-  /** 正在处理的单元，供前端显示「正在处理第 N 章…」；空闲时为 null。 */
-  currentUnitId: string | null;
-  currentLabel: string | null;
-};
+
 
 type StoredInput = { payload: RunPayload; units: TaskUnit[] };
 
@@ -298,34 +288,9 @@ export async function processRun(runId: string): Promise<void> {
   }
 }
 
-export type RunUnitView = {
-  id: string;
-  index: number;
-  label: string;
-  chapterId: string | null;
-  status: string;
-};
 
-export type RunStatusView = {
-  id: string;
-  projectId: string;
-  taskType: string;
-  taskLabel: string;
-  /** 单元量词（逐章＝章，整项目＝项）。 */
-  unitLabel: string;
-  /** pending | running | done | failed | canceled，另有视图层的 stalled（running 但处理器已失联）。 */
-  status: string;
-  progress: Progress;
-  usage: ChatUsage;
-  error: string | null;
-  promptVersion: string | null;
-  authorizedAt: string | null;
-  createdAt: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  payload: RunPayload;
-  units: RunUnitView[];
-};
+
+
 
 export async function getRunProgress(runId: string): Promise<RunStatusView | null> {
   const run = await prisma.analysisRun.findUnique({ where: { id: runId } });

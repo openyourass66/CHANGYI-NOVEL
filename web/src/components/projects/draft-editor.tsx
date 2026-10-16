@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -146,7 +148,7 @@ export function DraftEditor({
     }
     setSaving(true);
     try {
-      const res = await fetch(`/api/projects/${draft.projectId}/drafts/${draft.id}`, {
+      const res = await apiFetch(`/api/projects/${draft.projectId}/drafts/${draft.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: title.trim() || null, content }),
@@ -169,7 +171,7 @@ export function DraftEditor({
   async function remove() {
     setDeleting(true);
     try {
-      const res = await fetch(`/api/projects/${draft.projectId}/drafts/${draft.id}`, {
+      const res = await apiFetch(`/api/projects/${draft.projectId}/drafts/${draft.id}`, {
         method: "DELETE",
       });
       const data = (await res.json()) as { error?: string };

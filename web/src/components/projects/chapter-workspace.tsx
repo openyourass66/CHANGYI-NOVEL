@@ -1,4 +1,7 @@
 "use client";
+import { DownloadLink } from "@/components/download-link";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -153,7 +156,7 @@ export function ChapterWorkspace({
   );
 
   const refreshList = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/chapters`, {
+    const res = await apiFetch(`/api/projects/${projectId}/chapters`, {
       cache: "no-store",
     });
     if (!res.ok) return;
@@ -170,7 +173,7 @@ export function ChapterWorkspace({
   useEffect(() => {
     if (!selectedId || contents[selectedId] !== undefined || failedIds[selectedId]) return;
     let cancelled = false;
-    fetch(`/api/chapters/${selectedId}`, { cache: "no-store" })
+    apiFetch(`/api/chapters/${selectedId}`, { cache: "no-store" })
       .then(async (r) => {
         const d = (await r.json()) as { chapter?: { content: string }; error?: string };
         if (!r.ok || !d.chapter) throw new Error(d.error ?? "加载失败");
@@ -218,7 +221,7 @@ export function ChapterWorkspace({
     const previous = chapters;
     setChapters(reordered.map((c, i) => ({ ...c, sortOrder: i + 1 })));
     try {
-      const res = await fetch(`/api/projects/${projectId}/chapters/reorder`, {
+      const res = await apiFetch(`/api/projects/${projectId}/chapters/reorder`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderedIds: reordered.map((c) => c.id) }),
@@ -241,7 +244,7 @@ export function ChapterWorkspace({
     }
     setBusy(true);
     try {
-      const res = await fetch(`/api/chapters/${renameTarget.id}`, {
+      const res = await apiFetch(`/api/chapters/${renameTarget.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rawTitle: title }),
@@ -265,7 +268,7 @@ export function ChapterWorkspace({
     if (!selected || pendingSplitOffset == null) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/chapters/${selected.id}/split`, {
+      const res = await apiFetch(`/api/chapters/${selected.id}/split`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ atOffset: pendingSplitOffset }),
@@ -288,7 +291,7 @@ export function ChapterWorkspace({
     if (!selected || !mergeNext) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/chapters/${selected.id}/merge`, {
+      const res = await apiFetch(`/api/chapters/${selected.id}/merge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nextId: mergeNext.id }),
@@ -310,7 +313,7 @@ export function ChapterWorkspace({
     if (!deleteTarget) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/chapters/${deleteTarget.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/chapters/${deleteTarget.id}`, { method: "DELETE" });
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? "删除失败");
@@ -414,16 +417,16 @@ export function ChapterWorkspace({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem asChild>
-                <a href={`/api/projects/${projectId}/export?format=txt`}>
+                <DownloadLink href={`/api/projects/${projectId}/export?format=txt`}>
                   <FileText className="size-4" />
                   导出校对后正文（TXT）
-                </a>
+                </DownloadLink>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <a href={`/api/projects/${projectId}/export?format=json`}>
+                <DownloadLink href={`/api/projects/${projectId}/export?format=json`}>
                   <FileJson className="size-4" />
                   导出项目数据（JSON）
-                </a>
+                </DownloadLink>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

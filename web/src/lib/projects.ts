@@ -1,3 +1,5 @@
+import type { ProjectSummary } from "@contracts/api";
+export type { ProjectSummary } from "@contracts/api";
 import "server-only";
 import { rm } from "node:fs/promises";
 import { z } from "zod";
@@ -12,17 +14,7 @@ export const projectInputSchema = z.object({
 });
 export type ProjectInput = z.infer<typeof projectInputSchema>;
 
-export type ProjectSummary = {
-  id: string;
-  name: string;
-  language: string;
-  genre: string | null;
-  createdAt: string;
-  updatedAt: string;
-  chapterCount: number;
-  sourceCount: number;
-  memoryCount: number;
-};
+
 
 export async function listProjects(): Promise<ProjectSummary[]> {
   const user = await requireUser();

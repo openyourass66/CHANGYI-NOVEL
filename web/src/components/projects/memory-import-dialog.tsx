@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -89,7 +91,7 @@ export function MemoryImportDialog({
     try {
       const form = new FormData();
       for (const file of files) form.append("files", file);
-      const res = await fetch(`/api/projects/${projectId}/memory/import`, {
+      const res = await apiFetch(`/api/projects/${projectId}/memory/import`, {
         method: "POST",
         body: form,
       });

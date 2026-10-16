@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { RunPreview } from "@/lib/ai/preview";
+import type { RunPreview } from "@contracts/api";
 
 /** 云端模型的数据授权对话框：展示将发送什么，确认后才发起请求。 */
 export function CloudAuthorizeDialog({

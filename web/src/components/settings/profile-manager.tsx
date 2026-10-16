@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -54,7 +56,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { MODEL_PROVIDER, type ModelProvider } from "@/lib/domain";
-import type { ProfileView } from "@/lib/ai/profiles";
+import type { ProfileView } from "@contracts/api";
 
 const PROVIDER_HINTS: Record<ModelProvider, { baseUrl: string; model: string }> = {
   "openai-compatible": { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
@@ -165,7 +167,7 @@ export function ProfileManager({
       if (form.apiKey.trim()) payload.apiKey = form.apiKey.trim();
 
       const url = editing ? `/api/model-profiles/${editing.id}` : "/api/model-profiles";
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -188,7 +190,7 @@ export function ProfileManager({
   async function testConnection(p: ProfileView) {
     setTesting(p.id);
     try {
-      const res = await fetch(`/api/model-profiles/${p.id}/test`, { method: "POST" });
+      const res = await apiFetch(`/api/model-profiles/${p.id}/test`, { method: "POST" });
       const data = (await res.json()) as { ok?: boolean; sample?: string; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error ?? "连接失败");
       toast.success("连接正常", { description: data.sample?.slice(0, 80) });
@@ -201,7 +203,7 @@ export function ProfileManager({
   }
 
   async function makeDefault(p: ProfileView) {
-    const res = await fetch(`/api/model-profiles/${p.id}/default`, { method: "POST" });
+    const res = await apiFetch(`/api/model-profiles/${p.id}/default`, { method: "POST" });
     if (!res.ok) {
       toast.error("设置默认失败");
       return;
@@ -212,7 +214,7 @@ export function ProfileManager({
 
   async function confirmDelete() {
     if (!deleteTarget) return;
-    const res = await fetch(`/api/model-profiles/${deleteTarget.id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/model-profiles/${deleteTarget.id}`, { method: "DELETE" });
     setDeleteTarget(null);
     if (!res.ok) {
       toast.error("删除失败");

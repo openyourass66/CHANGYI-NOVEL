@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
@@ -43,7 +45,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { ProjectSummary } from "@/lib/projects";
+import type { ProjectSummary } from "@contracts/api";
 
 const dateFmt = new Intl.DateTimeFormat("zh-CN", {
   year: "numeric",
@@ -71,7 +73,7 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
     }
     setSaving(true);
     try {
-      const res = await fetch("/api/projects", {
+      const res = await apiFetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), language: "zh", genre: genre.trim() }),
@@ -96,7 +98,7 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch("/api/projects/restore", { method: "POST", body: form });
+      const res = await apiFetch("/api/projects/restore", { method: "POST", body: form });
       const data = (await res.json()) as {
         project?: { id: string; name: string };
         summary?: { chapterCount: number; memoryCount: number; droppedCitations: number };
@@ -121,7 +123,7 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
     if (!deleteTarget) return;
     const target = deleteTarget;
     setDeleteTarget(null);
-    const res = await fetch(`/api/projects/${target.id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/projects/${target.id}`, { method: "DELETE" });
     if (!res.ok) {
       toast.error("删除失败");
       return;

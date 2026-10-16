@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createServer } from "node:net";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
+import { startRedisFixture } from "./lib/redis-fixture.mts";
 
 const workspace = path.resolve(".verify/auth", randomUUID());
 await mkdir(workspace, { recursive: true });
@@ -23,7 +24,9 @@ assert(address && typeof address === "object");
 const port = address.port;
 await new Promise<void>((resolve) => listener.close(() => resolve()));
 const baseURL = `http://127.0.0.1:${port}`;
+const redisFixture = process.env.VERIFY_REDIS_URL ? null : await startRedisFixture();
 Object.assign(process.env, {
+  REDIS_URL: process.env.VERIFY_REDIS_URL ?? redisFixture!.url,
   DATABASE_URL: postgres ? postgresURL! : `file:${sqlitePath.replaceAll("\\", "/")}`,
   DATABASE_PROVIDER: postgres ? "postgresql" : "sqlite",
   BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
@@ -143,6 +146,21 @@ try {
     [`/api/analysis/${run.id}/cancel`, "POST"], [`/api/projects/${projectId}/plans/${plan.id}`, "GET"],
   ]) assert.equal((await request(route, cookies[1], method, method === "GET" ? undefined : {})).status, 404, route);
   assert.equal((await request(`/projects/${projectId}`, cookies[1])).status, 404);
+  assert.equal((await request("/api/v1/projects")).status, 401);
+  assert.equal((await request("/api/v1/projects", cookies[0])).status, 200);
+  assert.equal((await request(`/api/v1/projects/${projectId}`, cookies[1])).status, 404);
+  for (const view of ["chapters", "analysis", "memory", "continuation"]) {
+    const route = `/api/v1/workspaces/${projectId}?view=${view}`;
+    assert.equal((await request(route, cookies[1])).status, 404, route);
+    const response = await request(route, cookies[0]);
+    assert.equal(response.status, 200, route);
+    const body = await response.json();
+    assert.equal(body.workspace.view, view);
+    assert(!JSON.stringify(body).includes("storedPath"), "工作台不返回服务端文件路径");
+  }
+  assert.equal((await request("/api/v1/settings", cookies[0])).status, 200);
+  const v1login = await request("/api/v1/auth/sign-in/email", undefined, "POST", { email: emails[0], password });
+  assert.equal(v1login.status, 200, "版本化认证必须可登录");
   const profileA = await (await request("/api/model-profiles", cookies[0], "POST", { name: "A", provider: "openai-compatible", model: "test", baseUrl: "https://example.invalid/v1", apiKey: "test-only-not-a-real-api-key" })).json();
   assert(profileA.profile?.id, JSON.stringify(profileA));
   const profileId = profileA.profile.id;
@@ -174,7 +192,7 @@ try {
   }
   assert(limited, "伪造来源 IP 不能绕过登录限流");
   for (const file of await readdir("src/app/api", { recursive: true })) {
-    if (!file.endsWith("route.ts") || file.startsWith(`auth${path.sep}`) || file.startsWith(`health${path.sep}`)) continue;
+    if (!file.endsWith("route.ts") || file.startsWith(`auth${path.sep}`) || file.startsWith(`v1${path.sep}auth${path.sep}`) || file.startsWith(`health${path.sep}`)) continue;
     assert((await readFile(path.join("src/app/api", file), "utf8")).includes("withAccount("), `${file} 必须声明归属校验`);
   }
   console.log(`PASS (${postgres ? "PostgreSQL" : "SQLite + legacy migration"}): email verification, password hashing/reset, revoked sessions, API/page isolation, model ownership, local execution boundary, CSRF and persistent auth rate limits.`);
@@ -185,5 +203,6 @@ try {
     await stopped;
   }
   await prisma.$disconnect();
+  await redisFixture?.stop();
   // 保留隔离数据库供失败诊断；不访问 web/data 或真实账号数据。
 }

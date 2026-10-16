@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -136,7 +138,7 @@ export function MemoryEditor({
   async function loadChapterContent(chapterId: string): Promise<string> {
     const cached = contentCache.current.get(chapterId);
     if (cached !== undefined) return cached;
-    const res = await fetch(`/api/chapters/${chapterId}`, { cache: "no-store" });
+    const res = await apiFetch(`/api/chapters/${chapterId}`, { cache: "no-store" });
     const data = (await res.json()) as { chapter?: { content: string } };
     const content = data.chapter?.content ?? "";
     contentCache.current.set(chapterId, content);
@@ -184,7 +186,7 @@ export function MemoryEditor({
           endOffset: c.endOffset,
         })),
       };
-      const res = await fetch(editing ? `/api/memory/${entry!.id}` : `/api/projects/${projectId}/memory`, {
+      const res = await apiFetch(editing ? `/api/memory/${entry!.id}` : `/api/projects/${projectId}/memory`, {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -204,7 +206,7 @@ export function MemoryEditor({
     if (!entry) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/memory/${entry.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/memory/${entry.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
       toast.success("条目及其历史版本已删除");
       onDeleted(entry.id);
@@ -220,7 +222,7 @@ export function MemoryEditor({
     if (!entry) return;
     setLoadingHistory(true);
     try {
-      const res = await fetch(`/api/memory/${entry.id}/history`, { cache: "no-store" });
+      const res = await apiFetch(`/api/memory/${entry.id}/history`, { cache: "no-store" });
       const data = (await res.json()) as { history?: MemoryEntryView[] };
       setHistory(data.history ?? []);
     } catch {
@@ -234,7 +236,7 @@ export function MemoryEditor({
     if (!entry) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/memory/${entry.id}/history`, {
+      const res = await apiFetch(`/api/memory/${entry.id}/history`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ revision }),

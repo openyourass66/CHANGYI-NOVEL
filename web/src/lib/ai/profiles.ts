@@ -1,3 +1,5 @@
+import type { ProfileView } from "@contracts/api";
+export type { ProfileView } from "@contracts/api";
 import "server-only";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -18,20 +20,7 @@ export const profileInputSchema = z.object({
 export type ProfileInput = z.infer<typeof profileInputSchema>;
 
 /** 对外暴露的档案视图：绝不包含明文或密文密钥。 */
-export type ProfileView = {
-  id: string;
-  name: string;
-  provider: ModelProvider;
-  model: string;
-  baseUrl: string | null;
-  isLocal: boolean;
-  isDefault: boolean;
-  hasKey: boolean;
-  maskedKey: string | null;
-  statusNote: string | null;
-  lastCheckedAt: string | null;
-  updatedAt: string;
-};
+
 
 export function resolveIsLocal(provider: ModelProvider, explicit?: boolean): boolean {
   return LOCAL_PROVIDERS.includes(provider) || explicit === true;

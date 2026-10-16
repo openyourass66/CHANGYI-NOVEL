@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -50,9 +52,9 @@ import type {
   OutlineItem,
 } from "@/lib/continuation-view";
 import { cn } from "@/lib/utils";
-import type { ProfileView } from "@/lib/ai/profiles";
-import type { RunStatusView } from "@/lib/ai/runner";
-import type { TaskSummary } from "@/lib/ai/tasks/registry";
+import type { ProfileView } from "@contracts/api";
+import type { RunStatusView } from "@contracts/api";
+import type { TaskSummary } from "@contracts/api";
 import type { IssueStatus } from "@/lib/domain";
 import { toneClass } from "@/lib/domain";
 import { REQUIREMENT_HINT, requirementMet } from "@/lib/ai/requirements";
@@ -150,7 +152,7 @@ export function ContinuationPanel({
 
   const refreshPlans = useCallback(async () => {
     try {
-      const res = await fetch(`/api/projects/${projectId}/plans`, { cache: "no-store" });
+      const res = await apiFetch(`/api/projects/${projectId}/plans`, { cache: "no-store" });
       const data = (await res.json()) as { plans?: ContinuationPlanView[] };
       if (data.plans) setPlans(data.plans);
     } catch {
@@ -186,7 +188,7 @@ export function ContinuationPanel({
     let active = true;
     (async () => {
       try {
-        const res = await fetch(`/api/projects/${projectId}/plans/${targetPlanId}/drafts`, {
+        const res = await apiFetch(`/api/projects/${projectId}/plans/${targetPlanId}/drafts`, {
           cache: "no-store",
         });
         const data = (await res.json()) as { drafts?: DraftChapterView[] };
@@ -206,7 +208,7 @@ export function ContinuationPanel({
     let active = true;
     (async () => {
       try {
-        const res = await fetch(`/api/projects/${projectId}/issues`, { cache: "no-store" });
+        const res = await apiFetch(`/api/projects/${projectId}/issues`, { cache: "no-store" });
         const data = (await res.json()) as { issues?: ContinuityIssueView[] };
         if (active && data.issues) setIssues(data.issues);
       } catch {
@@ -314,7 +316,7 @@ export function ContinuationPanel({
     const prev = issues;
     setIssues((list) => list.map((i) => (i.id === issueId ? { ...i, status } : i)));
     try {
-      const res = await fetch(`/api/projects/${projectId}/issues/${issueId}`, {
+      const res = await apiFetch(`/api/projects/${projectId}/issues/${issueId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
@@ -331,7 +333,7 @@ export function ContinuationPanel({
   async function activate(id: string) {
     setActingPlan(id);
     try {
-      const res = await fetch(`/api/projects/${projectId}/plans/${id}/activate`, {
+      const res = await apiFetch(`/api/projects/${projectId}/plans/${id}/activate`, {
         method: "POST",
       });
       const data = (await res.json()) as { error?: string };
@@ -349,7 +351,7 @@ export function ContinuationPanel({
     setPendingDelete(null);
     setActingPlan(plan.id);
     try {
-      const res = await fetch(`/api/projects/${projectId}/plans/${plan.id}`, {
+      const res = await apiFetch(`/api/projects/${projectId}/plans/${plan.id}`, {
         method: "DELETE",
       });
       const data = (await res.json()) as { error?: string };
@@ -415,7 +417,7 @@ export function ContinuationPanel({
     }
     setSaving(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/plans/${editing.planId}`, {
+      const res = await apiFetch(`/api/projects/${projectId}/plans/${editing.planId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ outline: items }),

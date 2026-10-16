@@ -1,7 +1,7 @@
 /**
  * 任务硬前提的展示逻辑。仅供客户端组件使用（只依赖类型），服务端 validate 才是最终兜底。
  */
-import type { TaskRequirement } from "@/lib/ai/tasks/registry";
+import type { TaskRequirement } from "@contracts/api";
 
 export const REQUIREMENT_HINT: Record<TaskRequirement, string> = {
   memory: "需先完成「逐章抽取」，产出记忆条目",

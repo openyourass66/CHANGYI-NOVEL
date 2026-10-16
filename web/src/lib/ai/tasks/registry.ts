@@ -1,6 +1,8 @@
+import type { TaskRequirement, TaskSummary } from "@contracts/api";
+export type { TaskRequirement, TaskSummary } from "@contracts/api";
 import "server-only";
 import { AnalysisError } from "@/lib/ai/errors";
-import type { TaskDefinition, TaskScope, TaskSurface } from "@/lib/ai/tasks/types";
+import type { TaskDefinition, TaskSurface } from "@/lib/ai/tasks/types";
 import { chapterExtractTask } from "@/lib/ai/tasks/chapter-extract";
 import { bookSynthesisTask } from "@/lib/ai/tasks/book-synthesis";
 import { directionTask } from "@/lib/ai/tasks/direction";
@@ -27,17 +29,10 @@ export const TASKS: Record<string, TaskDefinition> = {
  * - outline：所选方向需要有章纲
  * - drafts：所选方向需要有草稿
  */
-export type TaskRequirement = "memory" | "plan" | "outline" | "drafts";
+
 
 /** 任务的可序列化摘要，供服务端页面传给客户端组件选择任务。 */
-export type TaskSummary = {
-  type: string;
-  label: string;
-  scope: TaskScope;
-  unitLabel: string;
-  description: string;
-  requirement: TaskRequirement | null;
-};
+
 
 const TASK_DESCRIPTION: Record<string, string> = {
   "chapter-extract": "逐章理解原文，产出章节笔记、事件、人物、设定、悬念与术语提案。",

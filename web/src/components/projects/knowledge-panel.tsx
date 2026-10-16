@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -68,7 +70,7 @@ export function KnowledgePanel({
     }
     setAdding(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/knowledge`, {
+      const res = await apiFetch(`/api/projects/${projectId}/knowledge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ characterName: name, infoItem: info, relation }),
@@ -89,7 +91,7 @@ export function KnowledgePanel({
   async function changeRelation(item: KnowledgeView, next: KnowledgeRelation) {
     setBusyId(item.id);
     try {
-      const res = await fetch(`/api/knowledge/${item.id}`, {
+      const res = await apiFetch(`/api/knowledge/${item.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -112,7 +114,7 @@ export function KnowledgePanel({
   async function remove(item: KnowledgeView) {
     setBusyId(item.id);
     try {
-      const res = await fetch(`/api/knowledge/${item.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/knowledge/${item.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
       setItems((prev) => prev.filter((it) => it.id !== item.id));
       toast.success("已删除认知");

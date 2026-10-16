@@ -1,33 +1,19 @@
+import type { TaskScope, TaskSurface, RunPayload, TaskUnit } from "@contracts/api";
+export type { TaskScope, TaskSurface, RunPayload, TaskUnit } from "@contracts/api";
 /** 任务定义的类型契约。纯类型模块，便于任务定义与运行器共享。 */
 import type { ChatUsage, ResolvedProfile } from "@/lib/ai/types";
 
 /** 任务作用域：逐章（一单元一章）或整项目（单元由任务自定义）。 */
-export type TaskScope = "chapter" | "project";
+
 
 /** 任务入口：理解分析页或续写规划页。决定任务在哪个面板里被选择与启动。 */
-export type TaskSurface = "analysis" | "continuation";
+
 
 /** 运行载荷，序列化存入 AnalysisRun.inputRangeJson.payload。 */
-export type RunPayload = {
-  /** 章节范围（缺省＝全部）。 */
-  chapterIds?: string[];
-  /** 续写规划（章纲/草稿/连续性检查）。 */
-  planId?: string;
-  /** 单章草稿（生成/连续性检查/记忆增量）。 */
-  draftId?: string;
-  /** 仅生成该序号的章纲项。 */
-  outlineIndex?: number;
-  /** 章纲规划的目标章节数（缺省由任务决定）。 */
-  outlineCount?: number;
-};
+
 
 /** 一个处理单元。逐章任务的单元即章节；整项目任务的单元由任务自定义。 */
-export type TaskUnit = {
-  id: string;
-  label: string;
-  /** 存在时，运行器会同步该章节的 analysisStatus。 */
-  chapterId?: string;
-};
+
 
 /** 建 run 前的上下文（尚无 runId）。 */
 export type TaskSetupCtx = {

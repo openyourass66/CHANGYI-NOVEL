@@ -1,10 +1,12 @@
 "use client";
+import { apiFetch } from "@/lib/client-api";
+
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { RunPreview } from "@/lib/ai/preview";
-import type { RunStatusView } from "@/lib/ai/runner";
-import type { RunPayload } from "@/lib/ai/tasks/types";
+import type { RunPreview } from "@contracts/api";
+import type { RunStatusView } from "@contracts/api";
+import type { RunPayload } from "@contracts/api";
 
 export type StartRunArgs = {
   taskType: string;
@@ -46,7 +48,7 @@ export function useAnalysisRun(options: {
     let active = true;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/analysis/${runId}`, { cache: "no-store" });
+        const res = await apiFetch(`/api/analysis/${runId}`, { cache: "no-store" });
         if (!active) return;
         const data = (await res.json()) as { run?: RunStatusView };
         if (data.run) {
@@ -68,7 +70,7 @@ export function useAnalysisRun(options: {
 
   const launch = useCallback(
     async (args: StartRunArgs, authorized: boolean) => {
-      const res = await fetch(`/api/projects/${projectId}/analysis`, {
+      const res = await apiFetch(`/api/projects/${projectId}/analysis`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -99,7 +101,7 @@ export function useAnalysisRun(options: {
       pendingArgs.current = args;
       setBusy(true);
       try {
-        const res = await fetch(`/api/projects/${projectId}/analysis/preview`, {
+        const res = await apiFetch(`/api/projects/${projectId}/analysis/preview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -144,7 +146,7 @@ export function useAnalysisRun(options: {
       if (!runId) return;
       setBusy(true);
       try {
-        const res = await fetch(`/api/analysis/${runId}/${action}`, { method: "POST" });
+        const res = await apiFetch(`/api/analysis/${runId}/${action}`, { method: "POST" });
         const data = (await res.json()) as { run?: RunStatusView; error?: string };
         if (!res.ok) throw new Error(data.error ?? "操作失败");
         if (data.run) setRun(data.run);

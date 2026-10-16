@@ -1,0 +1,16 @@
+*
+!web/
+!web/**
+!packages/
+!packages/contracts/
+!packages/contracts/**
+**/node_modules
+**/.next
+**/.verify
+**/data
+**/.env*
+**/*.tsbuildinfo
+**/*.db
+**/*.sqlite*
+!web/.env.example
+!web/.env.production.example
