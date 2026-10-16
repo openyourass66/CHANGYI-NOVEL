@@ -1,6 +1,8 @@
 # 当前虚拟机部署记录（2026-10-16，版本化 API 与设备推理支持）
 
-2026-10-16 已部署 `codex/client-server-split` 分支源码快照，包含同页验证码表单修正。源码包 SHA-256：`f2a725d03bea370b6b9caa5abe44240b062a44cba4aa43d27c48b372616ce7f0`。Compose 项目和 PostgreSQL/应用数据卷保持不变；源码位于 `/root/novel-upload/novel-vm-d5b9218e/web`，应用镜像 ID `sha256:66b0a16d6c8d6efa003fddf7c18a4d8e9e9ae206d26fe7582001d2d37e48fef8`。容器创建时间为 `2026-10-16T06:15:30Z`，健康检查通过。
+2026-10-16 已部署 `codex/client-server-split` 分支源码快照，包含同页验证码和操作提示弹窗。源码包 SHA-256：`268a3518db84c1de78e898103b90fb4a03a65e5bcbd05c69b0ed065e0f86f2ae`。Compose 项目和 PostgreSQL/应用数据卷保持不变；源码位于 `/root/novel-upload/novel-vm-84c48f63/source/web`，应用镜像 ID `sha256:0181d02facdc1a16da6b03c6cd8b91278dc584566a3d8722f9cc1b205e5cff44`。容器创建时间为 `2026-10-16T06:43:48Z`，健康检查通过且重启计数为 0。
+
+本次弹窗版本切换前备份：`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T064132Z-13ly3x`，数据库与文件归档 SHA-256 均校验通过。Windows 客户端 `0.1.3` 自测安装包已构建并核对 11 项包内文件，SHA-256 为 `cba4b7c823918017665cc32b366d25a191437867b286eb4b839b5cc3e115a232`。
 
 部署前备份：`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T055422Z-H48o0n`，包含 `COMPLETE` 标记，数据库及文件归档 SHA-256 校验通过。
 
@@ -14,16 +16,17 @@
 ## 访问与目录
 
 - 浏览器：`http://192.168.150.102:3000/login`，仅供本人经 VMware 私有网络访问。
-- 当前运行源码：`/root/novel-upload/novel-vm-d5b9218e/web`。
+- 当前运行源码：`/root/novel-upload/novel-vm-84c48f63/source/web`。
 - Compose 项目：`novel-selftest-20261015`；数据库未发布宿主机端口。
 - 私有配置：沿用旧目录 `/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm`，不进入新源码包。
-- 开发分支：`codex/client-server-split`；部署包包含本次同页验证码表单修正，部署记录在后续提交中更新。
+- 开发分支：`codex/client-server-split`；部署包包含本次操作提示弹窗修正，部署记录在后续提交中更新。
 
 ## 已完成的实际检查
 
 - 部署包 SHA-256 校验和 VM Node/SQLite 运行时预检通过；PostgreSQL 隔离验证及 SQLite → PostgreSQL 迁移验证通过。
 - 新应用和 PostgreSQL 容器健康；`http://192.168.150.102:3000/api/health` 与登录页均返回 HTTP 200，应用容器重启计数为 0。新镜像中的 PostgreSQL 账号/API 隔离与 SQLite → PostgreSQL 迁移验证均通过。
-- 修正后的找回密码页和注册页 HTTP 200，初始页面都包含邮箱与验证码输入框；Windows 客户端 `0.1.2` 自测安装包已构建并核对包内文件。
+- 修正后的找回密码页和注册页 HTTP 200，初始页面都包含邮箱与验证码输入框；Windows 客户端 `0.1.3` 自测安装包已构建并核对包内文件。
+- 成功、失败、警告和说明性的操作通知已统一改为居中弹窗，账号页操作反馈也使用同一组件；连续通知排队显示。网页与桌面构建通过，新网页容器健康、接口和找回密码页 HTTP 200；切换后核对迁入业务记录数保持不变。
 - 用户在新版找回密码页面完成真实邮箱验证码重置并重新登录。数据库中凭据更新时间早于当前唯一有效会话的创建时间；旧会话已撤销。用新会话访问 `/api/v1/projects` 返回 HTTP 200，仍可见 2 个迁入项目。未查看、记录或索取验证码和新密码。
 - 已重新配置并连接检查 DeepSeek 模型档案。使用专用临时项目通过真实 VM API 完成 TXT 导入、逐章分析（16 条提案）、提案采纳、全书统合、续写方向、章纲、草稿、连续性检查（0 条冲突）、草稿记忆提取（10 条提案）和 JSON 导出。验收项目已删除；再次核对仍为 2 个旧项目、718 章、77 条记忆、3 份旧草稿和 2 个原文件。
 - 真实模型调用期间，连续性检查和草稿记忆提取各出现一次“模型响应缺少内容”；重试均成功。该外部模型响应的不稳定情况需要后续观察，不能把首次失败算作稳定通过。
@@ -45,7 +48,7 @@
 
 本次切换前的部署备份：`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261015T115836Z-MocYsQ`。较早的部署/恢复演练备份：`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261015T113025Z-wXBTot`、`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261015T102344Z-z66XVa`。均不包含用户原有小说。
 
-当前虚拟机承载 Next.js 网页和 `/api/v1` 服务；Windows 客户端 `0.1.2` 自测安装包固定连接此虚拟机地址。桌面客户端与真实服务的人工端到端体验仍待验收；后续管理平台尚未实现。
+当前虚拟机承载 Next.js 网页和 `/api/v1` 服务；Windows 客户端 `0.1.3` 自测安装包固定连接此虚拟机地址。桌面客户端与真实服务的人工端到端体验仍待验收；后续管理平台尚未实现。
 
 ## 待完成
 
@@ -56,7 +59,7 @@
 ## 后续维护命令
 
 ```bash
-cd /root/novel-upload/novel-vm-d5b9218e/web
+cd /root/novel-upload/novel-vm-84c48f63/source/web
 env_file=/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm
 docker compose --env-file "$env_file" -p novel-selftest-20261015 ps
 docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-build --wait
@@ -65,7 +68,7 @@ docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-buil
 邮箱配置更新后重建应用容器，使环境变量生效：
 
 ```bash
-cd /root/novel-upload/novel-vm-d5b9218e/web
+cd /root/novel-upload/novel-vm-84c48f63/source/web
 env_file=/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm
 docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-build --force-recreate app
 ```
@@ -73,7 +76,7 @@ docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-buil
 备份时必须使用相同项目名：
 
 ```bash
-cd /root/novel-upload/novel-vm-d5b9218e/web
+cd /root/novel-upload/novel-vm-84c48f63/source/web
 env_file=/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm
 COMPOSE_PROJECT_NAME=novel-selftest-20261015 bash deploy/backup.sh \
   /root/novel-selftest-20261015-313fc7ac/backups "$env_file"
