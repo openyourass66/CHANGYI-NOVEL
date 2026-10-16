@@ -3,7 +3,7 @@ import { apiFetch } from "@/lib/client-api";
 
 
 import { useCallback, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import {
   AlertTriangle,
   Check,
@@ -217,7 +217,7 @@ export function AnalysisPanel({
   async function start() {
     const ids = scopeIds();
     if (isChapterScope && mode === "range" && (!ids || ids.length === 0)) {
-      toast.error("请选择至少一个章节。");
+      notify.error("请选择至少一个章节。");
       return;
     }
     await startRun({ taskType, profileId, chapterIds: ids });
@@ -233,11 +233,11 @@ export function AnalysisPanel({
         error?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "操作失败");
-      if (data.message) toast.warning(data.message);
-      else toast.success(action === "accept" ? "已采纳" : "已忽略");
+      if (data.message) notify.warning(data.message);
+      else notify.success(action === "accept" ? "已采纳" : "已忽略");
       await refreshProposals();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "操作失败");
+      notify.error(error instanceof Error ? error.message : "操作失败");
     } finally {
       setActing(null);
     }
@@ -255,12 +255,12 @@ export function AnalysisPanel({
         error?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "操作失败");
-      toast.success(
+      notify.success(
         `已采纳 ${data.accepted ?? 0} 条${data.conflicted ? `，${data.conflicted} 条冲突待裁决` : ""}`,
       );
       await refreshProposals();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "操作失败");
+      notify.error(error instanceof Error ? error.message : "操作失败");
     } finally {
       setActionBusy(false);
     }

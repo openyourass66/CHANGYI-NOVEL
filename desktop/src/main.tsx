@@ -8,7 +8,7 @@ import { apiJson } from "@/lib/client-api";
 import { authClient } from "@/lib/auth-client";
 import { AppShell } from "@/components/app-shell";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster } from "@/components/ui/sonner";
+import { OperationPromptHost } from "@/components/operation-prompt";
 import { AccountForm, type AccountMode } from "@/components/account-form";
 import { ProjectLibrary } from "@/components/projects/project-library";
 import { WorkspaceView } from "@/components/projects/workspace-view";
@@ -69,7 +69,7 @@ function App(){
   if(error)return <p role="alert" className="p-8">{error}</p>;
   if(!configuration)return <p role="status" className="p-8">正在启动…</p>;
   return <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-    <HashRouter><ConnectionStatus/><Screens config={configuration}/></HashRouter><Toaster position="bottom-right"/>
+    <HashRouter><ConnectionStatus/><Screens config={configuration}/></HashRouter><OperationPromptHost/>
   </ThemeProvider>;
 }
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App/></React.StrictMode>);

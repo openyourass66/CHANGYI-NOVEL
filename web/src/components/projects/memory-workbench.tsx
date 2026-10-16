@@ -4,7 +4,7 @@ import { apiFetch } from "@/lib/client-api";
 
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import { Download, Loader2, MapPin, Plus, Search, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -104,7 +104,7 @@ export function MemoryWorkbench({
         setCounts(data.counts);
         setConflicts(data.conflicts);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "加载失败");
+        notify.error(err instanceof Error ? err.message : "加载失败");
       } finally {
         setLoading(false);
       }

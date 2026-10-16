@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { notify } from "@/components/operation-prompt";
 
 export type AccountMode = "login" | "register" | "forgot";
 const titles: Record<AccountMode, string> = { login: "登录", register: "创建账号", forgot: "找回密码" };
@@ -28,15 +29,13 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
   const [loginMethod, setLoginMethod] = useState<"password" | "otp">("password");
   const [otpSent, setOtpSent] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const needsPassword = (mode === "login" && loginMethod === "password") || mode === "register" || mode === "forgot";
   const needsOtp = mode === "register" || mode === "forgot" || (mode === "login" && loginMethod === "otp");
   const otpPurpose = mode === "forgot" ? "forget-password" : "email-verification";
 
   function showError(result: { error?: { status?: number; code?: string } | null } | undefined, fallback: string) {
-    if (!result) setError(fallback);
-    else if (result.error) setError(result.error.status === 429 ? errorMessages.TOO_MANY_REQUESTS : errorMessages[result.error.code ?? ""] ?? fallback);
+    if (!result) notify.error(fallback);
+    else if (result.error) notify.error(result.error.status === 429 ? errorMessages.TOO_MANY_REQUESTS : errorMessages[result.error.code ?? ""] ?? fallback);
     return !result || Boolean(result.error);
   }
 
@@ -47,15 +46,15 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
     const name = String(form.get("name") ?? "").trim();
     const password = String(form.get("password") ?? "");
     const confirmPassword = String(form.get("confirmPassword") ?? "");
-    if (!email) { setError("请先填写邮箱。"); return; }
+    if (!email) { notify.error("请先填写邮箱。"); return; }
     if (mode === "register") {
-      if (!name) { setError("请先填写昵称。"); return; }
+      if (!name) { notify.error("请先填写昵称。"); return; }
       if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
-        setError(`密码长度需为 ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符。`); return;
+        notify.error(`密码长度需为 ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符。`); return;
       }
-      if (password !== confirmPassword) { setError("两次输入的密码不一致。"); return; }
+      if (password !== confirmPassword) { notify.error("两次输入的密码不一致。"); return; }
     }
-    setError(""); setMessage(""); setBusy(true);
+    setBusy(true);
     try {
       let result;
       if (mode === "register" && !otpSent) {
@@ -71,11 +70,11 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
       if (showError(result, "发送验证码失败，请稍后重试。")) return;
       setPendingEmail(email);
       setOtpSent(true);
-      setMessage(mode === "login"
+      notify.info(mode === "login"
         ? "如果邮箱已注册，请查收验证码邮件。"
-        : mode === "forgot" ? "如果邮箱已注册，请查收找回密码邮件。" : "");
+        : mode === "forgot" ? "如果邮箱已注册，请查收找回密码邮件。" : "验证码已发送，请查收邮件。");
     } catch {
-      setError("无法连接服务，请稍后重试。");
+      notify.error("无法连接服务，请稍后重试。");
     } finally { setBusy(false); }
   }
 
@@ -87,13 +86,11 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
     const email = (otpSent ? pendingEmail : String(form.get("email") ?? "")).trim().toLowerCase();
     const password = String(form.get("password") ?? "");
     const otp = String(form.get("otp") ?? "").trim();
-    setError(""); setMessage("");
-
     if (["register", "forgot"].includes(mode) && !otpSent) {
-      setError(mode === "register" ? "请先点击邮箱旁的按钮发送验证码。" : "请先发送邮箱验证码。"); return;
+      notify.error(mode === "register" ? "请先点击邮箱旁的按钮发送验证码。" : "请先发送邮箱验证码。"); return;
     }
     if (mode === "forgot" && password !== form.get("confirmPassword")) {
-      setError("两次输入的新密码不一致。"); return;
+      notify.error("两次输入的新密码不一致。"); return;
     }
 
     setBusy(true);
@@ -116,13 +113,13 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
         setOtpSent(false);
         setPendingEmail("");
         formElement.reset();
-        setMessage("密码已更新，旧会话已撤销，请使用新密码登录。");
+        notify.success("密码已更新，旧会话已撤销，请使用新密码登录。");
       } else {
         router.replace("/login");
         router.refresh();
       }
     } catch {
-      setError("无法连接服务，请稍后重试。");
+      notify.error("无法连接服务，请稍后重试。");
     } finally { setBusy(false); }
   }
 
@@ -137,10 +134,10 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
         </CardHeader>
         <CardContent className="space-y-5">
           {mode === "login" && <div className="grid grid-cols-2 gap-2" role="group" aria-label="选择登录方式">
-              <Button type="button" variant={loginMethod === "password" ? "default" : "outline"} aria-pressed={loginMethod === "password"} disabled={busy} onClick={() => { setLoginMethod("password"); setOtpSent(false); setPendingEmail(""); setError(""); setMessage(""); }}>
+              <Button type="button" variant={loginMethod === "password" ? "default" : "outline"} aria-pressed={loginMethod === "password"} disabled={busy} onClick={() => { setLoginMethod("password"); setOtpSent(false); setPendingEmail(""); }}>
                 密码登录
               </Button>
-              <Button type="button" variant={loginMethod === "otp" ? "default" : "outline"} aria-pressed={loginMethod === "otp"} disabled={busy} onClick={() => { setLoginMethod("otp"); setOtpSent(false); setPendingEmail(""); setError(""); setMessage(""); }}>
+              <Button type="button" variant={loginMethod === "otp" ? "default" : "outline"} aria-pressed={loginMethod === "otp"} disabled={busy} onClick={() => { setLoginMethod("otp"); setOtpSent(false); setPendingEmail(""); }}>
                 验证码登录
               </Button>
           </div>}
@@ -177,8 +174,6 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
               <p className="text-xs text-muted-foreground">验证码将发送到该邮箱。</p>
             </div>}
             {needsOtp && <div className="space-y-2"><Label htmlFor="otp">邮箱验证码</Label><Input id="otp" name="otp" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required disabled={busy} aria-describedby="otp-help" /><p id="otp-help" className="text-xs text-muted-foreground">{otpSent ? "请输入邮件中的 6 位验证码，有效期 5 分钟。" : "发送验证码后，在此输入收到的 6 位数字。"}</p></div>}
-            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-            {message && <p role="status" className="text-sm text-foreground">{message}</p>}
             <Button type="submit" className="w-full" disabled={busy || ((mode === "register" || mode === "forgot" || (mode === "login" && loginMethod === "otp")) && !otpSent)}>
               {busy ? "正在处理…" : mode === "login" ? "登录" : mode === "register" ? "验证并完成" : "重置密码"}
             </Button>

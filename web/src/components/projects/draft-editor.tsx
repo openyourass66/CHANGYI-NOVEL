@@ -4,7 +4,7 @@ import { apiFetch } from "@/lib/client-api";
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import {
   Check,
   Download,
@@ -143,7 +143,7 @@ export function DraftEditor({
 
   async function save() {
     if (!content.trim()) {
-      toast.error("草稿正文不能为空。");
+      notify.error("草稿正文不能为空。");
       return;
     }
     setSaving(true);
@@ -160,9 +160,9 @@ export function DraftEditor({
       setTitle(saved.title ?? "");
       setContent(saved.content);
       setMode("read");
-      toast.success(`已保存（v${saved.version}）`);
+      notify.success(`已保存（v${saved.version}）`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存失败");
+      notify.error(error instanceof Error ? error.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -177,9 +177,9 @@ export function DraftEditor({
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "删除失败");
       onDeleted(draft.id);
-      toast.success("已删除该草稿");
+      notify.success("已删除该草稿");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除失败");
+      notify.error(error instanceof Error ? error.message : "删除失败");
     } finally {
       setDeleting(false);
     }

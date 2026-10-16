@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 
 export function AccountMenu() {
   const { data, isPending } = authClient.useSession();
@@ -24,7 +24,7 @@ export function AccountMenu() {
           router.replace("/login");
           router.refresh();
         } catch {
-          toast.error("退出失败，请重试。");
+          notify.error("退出失败，请重试。");
           setBusy(false);
         }
       }}>{busy ? "正在退出…" : "退出登录"}</Button>

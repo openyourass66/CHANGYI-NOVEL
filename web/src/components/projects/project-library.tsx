@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/client-api";
 import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import {
   BookOpen,
   Clock,
@@ -60,7 +60,6 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [genre, setGenre] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
@@ -68,7 +67,7 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
 
   async function create() {
     if (!name.trim()) {
-      setError("请填写项目名称");
+      notify.error("请填写项目名称");
       return;
     }
     setSaving(true);
@@ -80,13 +79,13 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
       });
       const data = (await res.json()) as { project?: { id: string }; error?: string };
       if (!res.ok || !data.project) throw new Error(data.error ?? "创建失败");
-      toast.success("项目已创建");
+      notify.success("项目已创建");
       setOpen(false);
       setName("");
       setGenre("");
       router.push(`/projects/${data.project.id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "创建失败");
+      notify.error(err instanceof Error ? err.message : "创建失败");
     } finally {
       setSaving(false);
     }
@@ -106,14 +105,14 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
       };
       if (!res.ok || !data.project) throw new Error(data.error ?? "恢复失败");
       const dropped = data.summary?.droppedCitations ?? 0;
-      toast.success(
+      notify.success(
         `已恢复到「${data.project.name}」：${data.summary?.chapterCount ?? 0} 章、${data.summary?.memoryCount ?? 0} 条记忆${
           dropped > 0 ? `，${dropped} 条引用因备份缺少定位信息被丢弃` : ""
         }`,
       );
       router.push(`/projects/${data.project.id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "恢复失败");
+      notify.error(err instanceof Error ? err.message : "恢复失败");
     } finally {
       setRestoring(false);
     }
@@ -125,11 +124,11 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
     setDeleteTarget(null);
     const res = await apiFetch(`/api/projects/${target.id}`, { method: "DELETE" });
     if (!res.ok) {
-      toast.error("删除失败");
+      notify.error("删除失败");
       return;
     }
     setItems((prev) => prev.filter((p) => p.id !== target.id));
-    toast.success("项目已删除");
+    notify.success("项目已删除");
     startTransition(() => router.refresh());
   }
 
@@ -267,10 +266,8 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="例如：某部网文续写"
-                aria-invalid={Boolean(error)}
                 autoFocus
               />
-              {error && <p className="text-xs text-destructive">{error}</p>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pj-genre">体裁（可选）</Label>

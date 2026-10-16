@@ -3,7 +3,7 @@ import { apiFetch } from "@/lib/client-api";
 
 
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import {
   AlertTriangle,
   Check,
@@ -263,7 +263,7 @@ export function ContinuationPanel({
 
   async function start() {
     if (needsPlan && !targetPlan) {
-      toast.error("请先生成一个续写方向。");
+      notify.error("请先生成一个续写方向。");
       return;
     }
     await startRun({
@@ -288,7 +288,7 @@ export function ContinuationPanel({
   async function checkContinuity(draft?: DraftChapterView) {
     const planId = draft?.planId ?? targetPlanId;
     if (!planId) {
-      toast.error("请先选定一个续写方向。");
+      notify.error("请先选定一个续写方向。");
       return;
     }
     await startRun({
@@ -302,7 +302,7 @@ export function ContinuationPanel({
   async function proposeMemory(draft?: DraftChapterView) {
     const planId = draft?.planId ?? targetPlanId;
     if (!planId) {
-      toast.error("请先选定一个续写方向。");
+      notify.error("请先选定一个续写方向。");
       return;
     }
     await startRun({
@@ -326,7 +326,7 @@ export function ContinuationPanel({
       setIssues((list) => list.map((i) => (i.id === issueId ? data.issue! : i)));
     } catch (error) {
       setIssues(prev);
-      toast.error(error instanceof Error ? error.message : "更新失败");
+      notify.error(error instanceof Error ? error.message : "更新失败");
     }
   }
 
@@ -339,9 +339,9 @@ export function ContinuationPanel({
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "选定失败");
       await refreshPlans();
-      toast.success("已选为当前续写方向");
+      notify.success("已选为当前续写方向");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "选定失败");
+      notify.error(error instanceof Error ? error.message : "选定失败");
     } finally {
       setActingPlan(null);
     }
@@ -358,9 +358,9 @@ export function ContinuationPanel({
       if (!res.ok) throw new Error(data.error ?? "删除失败");
       if (editing?.planId === plan.id) setEditing(null);
       await refreshPlans();
-      toast.success("已删除该方向");
+      notify.success("已删除该方向");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除失败");
+      notify.error(error instanceof Error ? error.message : "删除失败");
     } finally {
       setActingPlan(null);
     }
@@ -412,7 +412,7 @@ export function ContinuationPanel({
     if (!editing) return;
     const items = editing.items.map((it) => ({ ...it, title: it.title.trim() }));
     if (items.some((it) => !it.title)) {
-      toast.error("每一章都要有标题。");
+      notify.error("每一章都要有标题。");
       return;
     }
     setSaving(true);
@@ -427,9 +427,9 @@ export function ContinuationPanel({
       const saved = data.plan;
       setPlans((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
       setEditing(null);
-      toast.success("章纲已保存");
+      notify.success("章纲已保存");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存失败");
+      notify.error(error instanceof Error ? error.message : "保存失败");
     } finally {
       setSaving(false);
     }

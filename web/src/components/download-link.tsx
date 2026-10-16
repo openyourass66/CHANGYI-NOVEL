@@ -1,6 +1,6 @@
 "use client";
 import { forwardRef, type ComponentProps } from "react";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import { apiFetch } from "@/lib/client-api";
 export const DownloadLink = forwardRef<HTMLAnchorElement, ComponentProps<"a">>(function DownloadLink({ href, onClick, ...props }, ref) {
   return <a {...props} ref={ref} href={href} onClick={async (event) => {
@@ -17,6 +17,6 @@ export const DownloadLink = forwardRef<HTMLAnchorElement, ComponentProps<"a">>(f
       const url = URL.createObjectURL(await response.blob());
       link.href = url; link.download = encoded ? decodeURIComponent(encoded) : fallback;
       link.click(); setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "导出失败。"); }
+    } catch (error) { notify.error(error instanceof Error ? error.message : "导出失败。"); }
   }} />;
 });

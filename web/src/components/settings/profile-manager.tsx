@@ -4,7 +4,7 @@ import { apiFetch } from "@/lib/client-api";
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import {
   Cloud,
   Cpu,
@@ -182,11 +182,11 @@ export function ProfileManager({
         await window.changyi.saveLocalProfile(data.profile.id, { provider: form.provider, model: form.model, baseUrl: form.baseUrl, apiKey: form.apiKey || undefined });
       }
 
-      toast.success(editing ? "档案已更新" : "档案已创建");
+      notify.success(editing ? "档案已更新" : "档案已创建");
       setFormOpen(false);
       startTransition(() => router.refresh());
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      notify.error(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -199,15 +199,15 @@ export function ProfileManager({
     try {
       if (p.isLocal && window.changyi) {
         const result = await window.changyi.infer(crypto.randomUUID(), p.id, { messages: [{ role: "user", content: "只回复 OK。" }], maxTokens: 16 });
-        toast.success("本机连接正常", { description: result.text.slice(0, 80) });
+        notify.success("本机连接正常", { description: result.text.slice(0, 80) });
         return;
       }
       const res = await apiFetch(`/api/model-profiles/${p.id}/test`, { method: "POST" });
       const data = (await res.json()) as { ok?: boolean; sample?: string; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error ?? "连接失败");
-      toast.success("连接正常", { description: data.sample?.slice(0, 80) });
+      notify.success("连接正常", { description: data.sample?.slice(0, 80) });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "连接失败");
+      notify.error(err instanceof Error ? err.message : "连接失败");
     } finally {
       setTesting(null);
       startTransition(() => router.refresh());
@@ -217,10 +217,10 @@ export function ProfileManager({
   async function makeDefault(p: ProfileView) {
     const res = await apiFetch(`/api/model-profiles/${p.id}/default`, { method: "POST" });
     if (!res.ok) {
-      toast.error("设置默认失败");
+      notify.error("设置默认失败");
       return;
     }
-    toast.success(`已将「${p.name}」设为默认`);
+    notify.success(`已将「${p.name}」设为默认`);
     startTransition(() => router.refresh());
   }
 
@@ -229,11 +229,11 @@ export function ProfileManager({
     const res = await apiFetch(`/api/model-profiles/${deleteTarget.id}`, { method: "DELETE" });
     setDeleteTarget(null);
     if (!res.ok) {
-      toast.error("删除失败");
+      notify.error("删除失败");
       return;
     }
-    toast.success("档案已删除");
-    if (window.changyi) await window.changyi.removeLocalProfile(deleteTarget.id).catch(() => toast.error("服务端档案已删除，本机凭据清理失败，请稍后重试。"));
+    notify.success("档案已删除");
+    if (window.changyi) await window.changyi.removeLocalProfile(deleteTarget.id).catch(() => notify.error("服务端档案已删除，本机凭据清理失败，请稍后重试。"));
     startTransition(() => router.refresh());
   }
 
@@ -315,7 +315,7 @@ export function ProfileManager({
                           )}
                           测试连接
                         </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => void openEdit(p).catch(() => toast.error("无法读取本机模型档案，请重新登录后重试。"))}>
+                        <DropdownMenuItem onSelect={() => void openEdit(p).catch(() => notify.error("无法读取本机模型档案，请重新登录后重试。"))}>
                           <Pencil className="size-4" />
                           编辑
                         </DropdownMenuItem>
