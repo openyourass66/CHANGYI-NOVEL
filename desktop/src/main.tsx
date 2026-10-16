@@ -2,7 +2,7 @@ import React, { useCallback, useContext, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter, Navigate, useLocation } from "react-router-dom";
 import type { DesktopConfiguration } from "@contracts/desktop";
-import type { ProjectSummary } from "@contracts/api";
+import type { ProjectSummary, UserProfileView } from "@contracts/api";
 import type { SettingsView, WorkspaceView as WorkspaceData } from "@contracts/workspace";
 import { apiJson } from "@/lib/client-api";
 import { authClient } from "@/lib/auth-client";
@@ -13,6 +13,7 @@ import { AccountForm, type AccountMode } from "@/components/account-form";
 import { ProjectLibrary } from "@/components/projects/project-library";
 import { WorkspaceView } from "@/components/projects/workspace-view";
 import { SettingsPanel } from "@/components/settings/settings-panel";
+import { ProfilePage } from "@/components/account/profile-page";
 import { Button } from "@/components/ui/button";
 import { RefreshContext } from "./navigation";
 import { DeviceWorker } from "./worker";
@@ -37,7 +38,7 @@ function RemotePage({ revision }: { revision: number }) {
   const retry = useContext(RefreshContext);
   const location=useLocation();const path=location.pathname;
   const match=path.match(/^\/projects\/([^/]+)(?:\/(analysis|memory|continuation))?$/);
-  const resource=path==="/"?"/api/v1/projects":path==="/settings"?"/api/v1/settings":match?`/api/v1/workspaces/${encodeURIComponent(match[1])}?view=${match[2]??"chapters"}`:null;
+  const resource=path==="/"?"/api/v1/projects":path==="/settings"?"/api/v1/settings":path==="/profile"?"/api/v1/profile":match?`/api/v1/workspaces/${encodeURIComponent(match[1])}?view=${match[2]??"chapters"}`:null;
   const [state,setState]=useState<{resource:string|null;data:unknown;error:string;status?:number}>({resource:null,data:null,error:""});
   useEffect(()=>{
     if(!resource)return;
@@ -50,7 +51,7 @@ function RemotePage({ revision }: { revision: number }) {
   if(state.resource!==resource)return <p className="p-8" role="status">正在加载…</p>;
   const error=state.error&&<div className="m-4 rounded-md border border-destructive p-4 text-sm" role="alert">{state.error} <Button variant="outline" size="sm" onClick={retry}>重新连接</Button></div>;
   if(!state.data)return <>{error}</>;
-  return <>{error}{path==="/"?<ProjectLibrary projects={(state.data as {projects:ProjectSummary[]}).projects}/>:path==="/settings"?<SettingsPanel {...state.data as SettingsView}/>:<WorkspaceView key={`${match![1]}:${match![2]??"chapters"}`} data={(state.data as {workspace:WorkspaceData}).workspace} focusEntryId={new URLSearchParams(location.search).get("entry")}/>}</>;
+  return <>{error}{path==="/"?<ProjectLibrary projects={(state.data as {projects:ProjectSummary[]}).projects}/>:path==="/settings"?<SettingsPanel {...state.data as SettingsView}/>:path==="/profile"?<ProfilePage profile={(state.data as {profile:UserProfileView}).profile}/>:<WorkspaceView key={`${match![1]}:${match![2]??"chapters"}`} data={(state.data as {workspace:WorkspaceData}).workspace} focusEntryId={new URLSearchParams(location.search).get("entry")}/>}</>;
 }
 
 function Screens({config}: {config: DesktopConfiguration}) {

@@ -1,5 +1,15 @@
 # 当前虚拟机部署记录（2026-10-16，分析运行状态即时更新）
 
+2026-10-16 顶栏头像展示：用户登录后，从受保护的头像 API 读取 OSS 头像，在最右侧账号框中显示；上传新头像会立即刷新顶栏，无头像时显示默认图标。当前源码快照 `/root/novel-upload/header-avatar-20261016/source`，包 SHA-256 `e5c7e897c2abed455f726dedfdd2ec1af756c384dd3c8c4e2730c4c5c788f3b7`。网页和桌面构建通过；应用、数据库、独立管理端均 healthy，头像 API 未登录返回 401。Windows 客户端 `0.1.5` 安装包为 `desktop/release/Changyi-0.1.5-Setup.exe`，SHA-256 `0883e76e08f3ea1ae7e1999dcf0c39c256a2ae046874897d0f7e7f507d0da4ff`，包内 11 项文件校验通过，并已复制到 VM `/root/novel-upload/header-avatar-20261016/`。
+
+2026-10-16 顶部账号入口调整：个人信息、用户名和退出登录合并为顶栏最右侧的账号下拉框，主题切换位于其左侧。当前服务端源码快照 `/root/novel-upload/account-menu-right-20261016/source`，源码包 SHA-256 `43b306aab8abbe94964a1d89f73aa32b683d264c016196227b290b07a265f345`；仅更新应用容器，应用、数据库和独立管理端均 healthy，后端健康接口返回 HTTP 200。Windows 客户端 `0.1.4` 安装包 `desktop/release/Changyi-0.1.4-Setup.exe`，SHA-256 `8e2779c40b54f277f99ff73a3fe289e98b594e80f8d7a7d6b563544c5335b35a`，包内 11 项文件校验通过，并已复制到 VM `/root/novel-upload/account-menu-right-20261016/`。
+
+2026-10-16 个人信息功能部署：新增个人资料、题材偏好、阿里云 OSS 头像代理及修改密码；PostgreSQL 迁移 `20261016110000_user_profile` 已应用。最终源码快照 `/root/novel-upload/profile-feature-20261016-verified/source`，包 SHA-256 `6df78f2ce0c71a8cde7ed7dcc3ab7bf1e5baedc425a88591b5f41dd4f5bd296d`。切换前数据库备份 `/root/novel-selftest-20261015-313fc7ac/backups/profile-pre-update.dump`，SHA-256 已验证；原文件卷未变化。应用 healthy，个人资料和头像匿名 API 均返回 401；OSS 凭据保存在私有 `.env.vm`（权限 0600），未打包进源码或客户端。桌面安装包位于 `desktop/release/Changyi-0.1.3-Setup.exe`，SHA-256 `4c49c20601137a4213464ebe60e79c4a2d7a87bbcfe5fa688140a85e315d34df`，包内 11 项文件校验通过。
+
+2026-10-16 管理端 UI 更新：已重新构建并仅替换独立 `admin` 容器。源码快照 `/root/novel-upload/admin-ui-refresh-20261016T081458Z-5603/source`，源码包 SHA-256 `7952560a67827ac2ae963fd6b64d1b072bd48b85ce4dd4affeb88136be4cebd3`。容器状态 healthy，`http://192.168.150.102:3001/` 返回 HTTP 200；后端和数据库服务未重启。
+
+2026-10-16 独立管理端已部署供私有网络测试。管理网页：`http://192.168.150.102:3001/`；后端仍为 `http://192.168.150.102:3000/`。管理端运行在同一 Compose 项目的独立 `admin` 容器，后端已加入管理员 API、数据库管理员/审计迁移及 CORS/认证来源配置。源码快照 `/root/novel-upload/admin-console-fix-20261016T080416Z-17369/source`，部署包 SHA-256 `1a3801be58723a0cc37c2c6fccee9fbad99b22795db0d82570f1156375932e2d`。切换前备份 `/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T075810Z-wh3Kfu`。应用与管理端健康检查通过，后端健康接口 HTTP 200，管理网页 HTTP 200，跨域 OPTIONS 返回 HTTP 204 且允许来源为管理端地址，未登录管理员 API 返回 HTTP 401。虚拟机唯一已验证且未停用的账号已获得 `super_admin`，并写入审计记录；使用原账号密码登录，没有创建或重置账号凭据。
+
 2026-10-16 最新部署：网页前端在创建分析任务后立即请求运行状态，并持续轮询，无需刷新页面。源码包 `/root/novel-upload/novel-vm-aec2bfc5/source/web`，SHA-256 `9bc7ac99851ec13536b58f9fde79a1eda152233a832b2c6c17ffb8e24bce3dc7`；应用镜像 `sha256:e0d160382993968fdf151850220e09e4c30b81ec417ba1e7cca12cb21ce269d2`，创建于 `2026-10-16T07:13:10Z`。容器 healthy、重启 0 次，`/api/health` 返回 HTTP 200。部署前备份 `/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T071112Z-47Wdy1` 的数据库和文件归档 SHA-256 均已校验。部署后项目 2 个、章节 718、记忆 77 条、草稿 3 份、原文件 2 个，数量未变。本次没有启动或恢复分析任务；用户随后反馈网页运行状态即时更新已正常。桌面安装包未更新。
 
 2026-10-16 上一版部署：`codex/client-server-split` 分支源码包 `/root/novel-upload/novel-vm-7d434e04/source/web`，SHA-256 `0b14a199a8a5f21e3ff170170696e3b3f9acac77b2990b5f45ad7952502a7785`。应用镜像 `sha256:12182f6cf59d82b53666fde319679d4f5332bef7b174d3fbc5723d96accd3303`，创建于 `2026-10-16T07:05:48Z`，容器 healthy、重启 0 次，`/api/health` 返回 HTTP 200。部署前备份 `/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T070219Z-zg30Oo` 的数据库和文件归档 SHA-256 均已校验。部署后仍为 2 个项目、718 章、77 条记忆、3 份草稿、2 个原文件、1 个已配置密钥的模型档案，项目归属计数为 2。
@@ -21,6 +31,7 @@
 
 ## 访问与目录
 
+- 管理端浏览器：`http://192.168.150.102:3001/`，使用已有验证账号登录。
 - 浏览器：`http://192.168.150.102:3000/login`，仅供本人经 VMware 私有网络访问。
 - 当前运行源码：`/root/novel-upload/novel-vm-aec2bfc5/source/web`。
 - Compose 项目：`novel-selftest-20261015`；数据库未发布宿主机端口。

@@ -11,17 +11,24 @@ datasource db {
 }
 
 model User {
-  id            String         @id
-  name          String
-  email         String         @unique
-  emailVerified Boolean        @default(false)
-  image         String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  projects      NovelProject[]
-  modelProfiles ModelProfile[]
+  id             String          @id
+  name           String
+  gender         String?
+  age            Int?
+  avatarKey      String?
+  favoriteGenres String          @default("[]")
+  email          String          @unique
+  emailVerified  Boolean         @default(false)
+  image          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  disabledAt     DateTime?
+  sessions       Session[]
+  accounts       Account[]
+  projects       NovelProject[]
+  modelProfiles  ModelProfile[]
+  adminIdentity  AdminIdentity?
+  adminAuditLogs AdminAuditLog[] @relation("AdminAuditActor")
 }
 
 model Session {
@@ -100,6 +107,28 @@ model NovelProject {
   memoryProposals    MemoryProposal[]
 
   @@index([ownerId])
+}
+
+model AdminIdentity {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  role      String   @default("operator") // super_admin | operator | observer
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  action     String
+  targetType String
+  targetId   String?
+  detailJson String   @default("{}")
+  createdAt  DateTime @default(now())
+  actor      User     @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
 }
 
 /// 导入的源文档（原文，只读）

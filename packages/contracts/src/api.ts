@@ -13,6 +13,20 @@ export type ProjectSummary = {
   memoryCount: number;
 };
 
+export const NOVEL_GENRES = ["玄幻", "仙侠", "都市", "科幻", "悬疑", "历史", "言情", "武侠", "游戏", "末日", "灵异", "军事", "轻小说", "现实"] as const;
+export type NovelGenre = (typeof NOVEL_GENRES)[number];
+export type UserProfileView = {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  gender: "male" | "female" | "other" | null;
+  age: number | null;
+  favoriteGenres: NovelGenre[];
+  avatarUrl: string | null;
+  createdAt: string;
+};
+
 export type ProfileView = {
   id: string;
   name: string;

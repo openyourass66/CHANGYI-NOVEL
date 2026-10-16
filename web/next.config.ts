@@ -2,6 +2,18 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 const nextConfig: NextConfig = {
+  async headers() {
+    const adminOrigin = new URL(process.env.ADMIN_CONSOLE_URL ?? "http://localhost:3001").origin;
+    const cors = [
+      { key: "Access-Control-Allow-Origin", value: adminOrigin },
+      { key: "Access-Control-Allow-Credentials", value: "true" },
+      { key: "Vary", value: "Origin" },
+    ];
+    return [
+      { source: "/api/admin/:path*", headers: [...cors, { key: "Access-Control-Allow-Methods", value: "GET, PATCH, OPTIONS" }, { key: "Access-Control-Allow-Headers", value: "Content-Type" }] },
+      { source: "/api/v1/auth/:path*", headers: [...cors, { key: "Access-Control-Allow-Methods", value: "GET, POST, OPTIONS" }, { key: "Access-Control-Allow-Headers", value: "Content-Type" }] },
+    ];
+  },
   outputFileTracingRoot: path.resolve(process.cwd(), ".."),
   async rewrites() {
     return ["projects", "chapters", "memory", "knowledge", "proposals", "analysis", "model-profiles", "health"].map((resource) => ({
@@ -17,7 +29,7 @@ const nextConfig: NextConfig = {
      避免 cacheComponents 与直接读写 SQLite 的服务器组件冲突。 */
   cacheComponents: false,
   // Prisma / 解析库仅在服务端使用
-  serverExternalPackages: ["@prisma/client", "prisma"],
+  serverExternalPackages: ["@prisma/client", "prisma", "ali-oss"],
   turbopack: {
     root: path.resolve(process.cwd(), ".."),
     rules: {

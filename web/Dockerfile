@@ -6,6 +6,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV NOVEL_STANDALONE_BUILD=1
 ENV DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build?schema=public
+ARG ADMIN_CONSOLE_URL=http://localhost:3001
+ENV ADMIN_CONSOLE_URL=${ADMIN_CONSOLE_URL}
 WORKDIR /app/web
 
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && \

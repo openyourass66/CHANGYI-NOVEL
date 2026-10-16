@@ -18,8 +18,15 @@ export function createAuth(deliver: typeof sendAccountMail = sendAccountMail, se
     appName: "长忆",
     secret,
     baseURL,
+    trustedOrigins: process.env.ADMIN_CONSOLE_URL ? [new URL(process.env.ADMIN_CONSOLE_URL).origin] : undefined,
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        const signInPaths = ["/sign-in/email", "/sign-in/email-otp"];
+        const signInEmail = signInPaths.includes(ctx.path) && typeof ctx.body?.email === "string" ? ctx.body.email.toLowerCase() : null;
+        if (signInEmail) {
+          const disabled = await prisma.user.findFirst({ where: { email: signInEmail, disabledAt: { not: null } }, select: { id: true } });
+          if (disabled) throw new APIError("FORBIDDEN", { code: "ACCOUNT_DISABLED", message: "此账号已停用，请联系平台管理员。" });
+        }
         // 禁用使用邮件链接重置密码的旧端点；密码找回必须通过邮箱验证码。
         if (ctx.path === "/request-password-reset" || ctx.path === "/reset-password" || ctx.path.startsWith("/reset-password/")) {
           throw new APIError("BAD_REQUEST", { code: "EMAIL_OTP_REQUIRED", message: "邮件链接重置密码已停用，请使用邮箱验证码重置密码。" });

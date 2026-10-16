@@ -6,7 +6,7 @@ import { Library, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { href: "/", label: "项目库", icon: Library, match: (p: string) => !p.startsWith("/settings") },
+  { href: "/", label: "项目库", icon: Library, match: (p: string) => p === "/" || p.startsWith("/projects") },
   { href: "/settings", label: "设置", icon: Settings, match: (p: string) => p.startsWith("/settings") },
 ];
 

@@ -3,6 +3,7 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuth } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 
 export class AccessError extends Error {
   constructor(message: string, public status: number) {
@@ -13,6 +14,8 @@ export class AccessError extends Error {
 export async function userFromHeaders(requestHeaders: Headers) {
   const session = await getAuth().api.getSession({ headers: requestHeaders });
   if (!session?.user.emailVerified) return null;
+  const active = await prisma.user.findFirst({ where: { id: session.user.id, disabledAt: null }, select: { id: true } });
+  if (!active) return null;
   return session.user;
 }
 

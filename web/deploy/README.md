@@ -8,7 +8,7 @@
 
 ## 源码部署包
 
-开发机在 `web/` 执行 `pnpm deploy:package`，得到 `novel-vm.tar.gz` 和同目录的 `.sha256` 文件。包来自当前分支工作区，包含尚未提交的实现，不需要切换或推送 `main`。只选取 Web 代码、模型、迁移、运维脚本和示例配置；真实 `.env*`、小说、数据库、技能目录和生成文件不进入归档。压缩包中的 `DEPLOY_SNAPSHOT.json` 记录分支、基线提交及每个源码文件的哈希。
+开发机在 `web/` 执行 `pnpm deploy:package`，得到 `novel-vm.tar.gz` 和同目录的 `.sha256` 文件。包来自当前分支工作区，包含尚未提交的实现，不需要切换或推送 `main`。源码包包含 Web 代码、独立 `admin-console/` 网页、共享类型、模型、迁移、运维脚本和安全示例配置；真实 `.env*`、小说、数据库、技能目录和生成文件不进入归档。压缩包中的 `DEPLOY_SNAPSHOT.json` 记录分支、基线提交及每个源码文件的哈希。管理端以独立 Compose 服务和容器运行，端口默认 3001；后端 `ADMIN_CONSOLE_URL` 配置 CORS 与认证信任来源。管理端构建参数 `ADMIN_API_BASE_URL` 指向后端，不传入数据库、Redis 或签名密钥。
 
 将这两个文件传到虚拟机的专用目录，校验并解压到新目录，避免覆盖已有程序：
 
@@ -35,7 +35,7 @@ docker run --rm -it -v "$PWD:/deployment:Z" -w /deployment \
 
 默认网易 `smtp.163.com:465`，QQ 邮箱改为 `smtp.qq.com:465`。输入客户端授权码；不要输入网页登录密码，也不要把授权码发到聊天或写入命令行参数。配置完成后重新创建应用容器使其生效。
 
-1. 在虚拟机准备本分支源码和独立 `.env.vm`，避免覆盖开发机 `.env`。填入生产示例中的变量：三个独立随机值用于数据库密码、模型加密和会话签名；数据库密码用 64 位十六进制值，避免 URI 转义歧义。设置 `REDIS_URL` 指向虚拟机现有 Redis（默认 `redis://host.docker.internal:6379`）。Redis 若只监听 `127.0.0.1`，容器无法连接；应限制在本机/Docker 网桥可达范围并使用 Redis 已配置的访问控制，不要将 Redis 端口暴露到外部网络。SMTP 使用网易客户端授权码。
+1. 在虚拟机准备本分支源码和独立 `.env.vm`，避免覆盖开发机 `.env`。填入生产示例中的变量：三个独立随机值用于数据库密码、模型加密和会话签名；数据库密码用 64 位十六进制值，避免 URI 转义歧义。设置 `REDIS_URL` 指向虚拟机现有 Redis（默认 `redis://host.docker.internal:6379`）。Redis 若只监听 `127.0.0.1`，容器无法连接；应限制在本机/Docker 网桥可达范围并使用 Redis 已配置的访问控制，不要将 Redis 端口暴露到外部网络。SMTP 使用网易客户端授权码。头像使用现有私有 OSS Bucket：`OSS_REGION=oss-cn-beijing`、`OSS_BUCKET=changyi-novel`；服务端设置 `OSS_ACCESS_KEY_ID` 与 `OSS_ACCESS_KEY_SECRET`，不要放入网页或桌面客户端配置。
 2. `APP_BIND_ADDRESS` 只能是回环或经确认的虚拟机私有网卡 IP；`BETTER_AUTH_URL` 填浏览器访问的完整地址。HTTP 仅供当前私有联调；HTTPS 地址自动使用 Secure Cookie。
 3. 执行下面的命令。首次构建需要联网下载依赖和 Prisma 引擎，不读取现有 SQLite 或小说数据。
 

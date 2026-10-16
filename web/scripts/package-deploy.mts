@@ -11,10 +11,11 @@ const webRootFiles = new Set([
   "next.config.ts", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.json",
 ]);
 const webFolders = new Set(["src", "public", "prisma", "prisma-postgresql", "deploy", "scripts"]);
-const samples = new Set(["web/.env.example", "web/.env.production.example"]);
+const samples = new Set(["web/.env.example", "web/.env.production.example", "admin-console/.env.example"]);
 const webFiles = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "-z", "--", "web"], { cwd: repo, encoding: "utf8" }).split("\0").filter(Boolean);
 const contracts = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "-z", "--", "packages/contracts"], { cwd: repo, encoding: "utf8" }).split("\0").filter(Boolean);
-const selected = [...new Set(["README.md", ".gitattributes", ".dockerignore", ...contracts, ...webFiles.filter((file) => {
+const adminFiles = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "-z", "--", "admin-console"], { cwd: repo, encoding: "utf8" }).split("\0").filter(Boolean);
+const selected = [...new Set(["README.md", ".gitattributes", ".dockerignore", ...contracts, ...adminFiles, ...webFiles.filter((file) => {
   const parts = file.split("/");
   return parts.length === 2 ? webRootFiles.has(parts[1]) : webFolders.has(parts[1]);
 })])].sort();

@@ -10,6 +10,7 @@
     "db:generate:postgres": "prisma generate --schema prisma-postgresql/schema.prisma",
     "db:migrate:postgres": "prisma migrate deploy --schema prisma-postgresql/schema.prisma",
     "data:claim": "tsx scripts/claim-legacy.mts",
+    "admin:grant": "tsx scripts/grant-admin.mts",
     "data:migrate": "tsx scripts/migrate-legacy.mts",
     "deploy:package": "tsx scripts/package-deploy.mts",
     "verify:auth": "node --conditions=react-server --import tsx scripts/verify-auth.mts",
@@ -20,6 +21,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "ali-oss": "6.23.0",
     "better-auth": "1.7.9",
     "chardet": "^2.2.0",
     "cheerio": "^1.2.0",
@@ -47,6 +49,7 @@
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
+    "@types/ali-oss": "6.23.3",
     "@types/node": "^22.20.5",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19",
