@@ -1,6 +1,8 @@
-# 当前虚拟机部署记录（2026-10-16，模型空响应重试修复）
+# 当前虚拟机部署记录（2026-10-16，分析运行状态即时更新）
 
-2026-10-16 最新部署：`codex/client-server-split` 分支源码包 `/root/novel-upload/novel-vm-7d434e04/source/web`，SHA-256 `0b14a199a8a5f21e3ff170170696e3b3f9acac77b2990b5f45ad7952502a7785`。应用镜像 `sha256:12182f6cf59d82b53666fde319679d4f5332bef7b174d3fbc5723d96accd3303`，创建于 `2026-10-16T07:05:48Z`，容器 healthy、重启 0 次，`/api/health` 返回 HTTP 200。部署前备份 `/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T070219Z-zg30Oo` 的数据库和文件归档 SHA-256 均已校验。部署后仍为 2 个项目、718 章、77 条记忆、3 份草稿、2 个原文件、1 个已配置密钥的模型档案，项目归属计数为 2。
+2026-10-16 最新部署：网页前端在创建分析任务后立即请求运行状态，并持续轮询，无需刷新页面。源码包 `/root/novel-upload/novel-vm-aec2bfc5/source/web`，SHA-256 `9bc7ac99851ec13536b58f9fde79a1eda152233a832b2c6c17ffb8e24bce3dc7`；应用镜像 `sha256:e0d160382993968fdf151850220e09e4c30b81ec417ba1e7cca12cb21ce269d2`，创建于 `2026-10-16T07:13:10Z`。容器 healthy、重启 0 次，`/api/health` 返回 HTTP 200。部署前备份 `/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T071112Z-47Wdy1` 的数据库和文件归档 SHA-256 均已校验。部署后项目 2 个、章节 718、记忆 77 条、草稿 3 份、原文件 2 个，数量未变。本次没有启动或恢复分析任务；页面交互仍待用户实际操作确认。桌面安装包未更新。
+
+2026-10-16 上一版部署：`codex/client-server-split` 分支源码包 `/root/novel-upload/novel-vm-7d434e04/source/web`，SHA-256 `0b14a199a8a5f21e3ff170170696e3b3f9acac77b2990b5f45ad7952502a7785`。应用镜像 `sha256:12182f6cf59d82b53666fde319679d4f5332bef7b174d3fbc5723d96accd3303`，创建于 `2026-10-16T07:05:48Z`，容器 healthy、重启 0 次，`/api/health` 返回 HTTP 200。部署前备份 `/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T070219Z-zg30Oo` 的数据库和文件归档 SHA-256 均已校验。部署后仍为 2 个项目、718 章、77 条记忆、3 份草稿、2 个原文件、1 个已配置密钥的模型档案，项目归属计数为 2。
 
 本版针对 DeepSeek 官方接口的结构化请求偶发空内容自动重试一次；重试时关闭思考模式并明确要求 JSON 输出。失败任务的“重试”现在会重跑失败单元；旧的零产出失败任务也可从原任务重试。用户要求不恢复本次失败分析，因此未重跑该任务，修复后的真实模型请求效果尚未验收。Windows 客户端安装包无须因本次服务端修改更新。
 
@@ -20,10 +22,10 @@
 ## 访问与目录
 
 - 浏览器：`http://192.168.150.102:3000/login`，仅供本人经 VMware 私有网络访问。
-- 当前运行源码：`/root/novel-upload/novel-vm-7d434e04/source/web`。
+- 当前运行源码：`/root/novel-upload/novel-vm-aec2bfc5/source/web`。
 - Compose 项目：`novel-selftest-20261015`；数据库未发布宿主机端口。
 - 私有配置：沿用旧目录 `/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm`，不进入新源码包。
-- 开发分支：`codex/client-server-split`；最新部署包包含模型空响应和失败任务重试修正。
+- 开发分支：`codex/client-server-split`；最新部署包包含分析运行状态即时更新，以及先前的模型空响应和失败任务重试修正。
 
 ## 已完成的实际检查
 
@@ -63,7 +65,7 @@
 ## 后续维护命令
 
 ```bash
-cd /root/novel-upload/novel-vm-7d434e04/source/web
+cd /root/novel-upload/novel-vm-aec2bfc5/source/web
 env_file=/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm
 docker compose --env-file "$env_file" -p novel-selftest-20261015 ps
 docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-build --wait
@@ -72,7 +74,7 @@ docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-buil
 邮箱配置更新后重建应用容器，使环境变量生效：
 
 ```bash
-cd /root/novel-upload/novel-vm-7d434e04/source/web
+cd /root/novel-upload/novel-vm-aec2bfc5/source/web
 env_file=/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm
 docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-build --force-recreate app
 ```
@@ -80,7 +82,7 @@ docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-buil
 备份时必须使用相同项目名：
 
 ```bash
-cd /root/novel-upload/novel-vm-7d434e04/source/web
+cd /root/novel-upload/novel-vm-aec2bfc5/source/web
 env_file=/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm
 COMPOSE_PROJECT_NAME=novel-selftest-20261015 bash deploy/backup.sh \
   /root/novel-selftest-20261015-313fc7ac/backups "$env_file"
