@@ -3,7 +3,7 @@
   "productName": "长忆",
   "description": "长忆 Windows 小说理解与续写客户端",
   "author": "Changyi",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "main": "electron/main.mjs",

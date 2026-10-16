@@ -30,7 +30,8 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
   const [pendingEmail, setPendingEmail] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const needsPassword = (mode === "login" && loginMethod === "password") || mode === "register" || (mode === "forgot" && otpSent);
+  const needsPassword = (mode === "login" && loginMethod === "password") || mode === "register" || mode === "forgot";
+  const needsOtp = mode === "register" || mode === "forgot" || (mode === "login" && loginMethod === "otp");
   const otpPurpose = mode === "forgot" ? "forget-password" : "email-verification";
 
   function showError(result: { error?: { status?: number; code?: string } | null } | undefined, fallback: string) {
@@ -163,8 +164,8 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
                 </Button>}
               </div>
             </div>}
-            {needsPassword && <div className="space-y-2"><Label htmlFor="password">{mode === "forgot" ? "新密码" : "密码"}</Label><Input id="password" name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "login" ? 1 : MIN_PASSWORD_LENGTH} maxLength={mode === "login" ? 128 : MAX_PASSWORD_LENGTH} required disabled={busy || (mode === "forgot" && !otpSent)} /><p className="text-xs text-muted-foreground">{mode !== "login" && `${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符，请使用独立密码。`}</p></div>}
-            {((mode === "register") || (mode === "forgot" && otpSent)) && <div className="space-y-2"><Label htmlFor="confirmPassword">确认密码</Label><Input id="confirmPassword" name="confirmPassword" type="password" autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} required disabled={busy || (mode === "register" && otpSent) || (mode === "forgot" && !otpSent)} /></div>}
+            {needsPassword && <div className="space-y-2"><Label htmlFor="password">{mode === "forgot" ? "新密码" : "密码"}</Label><Input id="password" name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "login" ? 1 : MIN_PASSWORD_LENGTH} maxLength={mode === "login" ? 128 : MAX_PASSWORD_LENGTH} required disabled={busy} /><p className="text-xs text-muted-foreground">{mode !== "login" && `${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} 个字符，请使用独立密码。`}</p></div>}
+            {(mode === "register" || mode === "forgot") && <div className="space-y-2"><Label htmlFor="confirmPassword">确认密码</Label><Input id="confirmPassword" name="confirmPassword" type="password" autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} maxLength={MAX_PASSWORD_LENGTH} required disabled={busy || (mode === "register" && otpSent)} /></div>}
             {mode === "register" && <div className="space-y-2">
               <Label htmlFor="email">邮箱地址</Label>
               <div className="flex gap-2">
@@ -175,7 +176,7 @@ export function AccountForm({ mode }: { mode: AccountMode }) {
               </div>
               <p className="text-xs text-muted-foreground">验证码将发送到该邮箱。</p>
             </div>}
-            {(mode === "register" || (mode === "login" && loginMethod === "otp") || (mode === "forgot" && otpSent)) && <div className="space-y-2"><Label htmlFor="otp">邮箱验证码</Label><Input id="otp" name="otp" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required disabled={busy} aria-describedby="otp-help" /><p id="otp-help" className="text-xs text-muted-foreground">{otpSent ? "请输入邮件中的 6 位验证码，有效期 5 分钟。" : "发送验证码后，在此输入收到的 6 位数字。"}</p></div>}
+            {needsOtp && <div className="space-y-2"><Label htmlFor="otp">邮箱验证码</Label><Input id="otp" name="otp" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required disabled={busy} aria-describedby="otp-help" /><p id="otp-help" className="text-xs text-muted-foreground">{otpSent ? "请输入邮件中的 6 位验证码，有效期 5 分钟。" : "发送验证码后，在此输入收到的 6 位数字。"}</p></div>}
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
             {message && <p role="status" className="text-sm text-foreground">{message}</p>}
             <Button type="submit" className="w-full" disabled={busy || ((mode === "register" || mode === "forgot" || (mode === "login" && loginMethod === "otp")) && !otpSent)}>
