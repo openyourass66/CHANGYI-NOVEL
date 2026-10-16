@@ -128,6 +128,8 @@ export type Progress = {
   errors: string[];
   /** 本次任务已处理的单元，用于中断后 resume 时避免重复处理（不影响新任务重跑）。 */
   doneIds: string[];
+  /** 本次任务处理失败的单元；恢复时只重新处理这些单元。旧运行记录可能缺少此字段。 */
+  failedIds?: string[];
   /** 正在处理的单元，供前端显示「正在处理第 N 章…」；空闲时为 null。 */
   currentUnitId: string | null;
   currentLabel: string | null;

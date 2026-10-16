@@ -59,6 +59,7 @@ function seedProgress(unitsTotal: number): Progress {
     produced: 0,
     errors: [],
     doneIds: [],
+    failedIds: [],
     currentUnitId: null,
     currentLabel: null,
   };
@@ -183,6 +184,7 @@ export async function processRun(runId: string): Promise<void> {
       ...seedProgress(stored.units.length),
       ...(JSON.parse(run.progressJson || "{}") as Partial<Progress>),
     };
+    if (!Array.isArray(progress.failedIds)) progress.failedIds = [];
 
     // 以存下的单元为准，与当前有效单元取交集（容忍章节被删除）；交集为空则保留原单元。
     let units = stored.units;
@@ -211,7 +213,7 @@ export async function processRun(runId: string): Promise<void> {
       return current?.status === "canceled";
     };
 
-    let usageTotal: ChatUsage = {};
+    let usageTotal: ChatUsage = JSON.parse(run.usageJson || "{}") as ChatUsage;
 
     for (let b = 0; b < progress.batchTotal; b++) {
       const slice = units.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
@@ -252,6 +254,7 @@ export async function processRun(runId: string): Promise<void> {
           const message = error instanceof Error ? error.message : "未知错误";
           const label = unit.chapterId ? `《${unit.label}》` : unit.label;
           progress.errors.push(`${label}：${message}`);
+          progress.failedIds.push(unit.id);
           if (unit.chapterId) await setChapterStatus(unit.chapterId, "failed");
           // 设备断开时保留未完成单元，恢复后重新领取，避免逐章空跑并标记为已处理。
           if (profile.deviceOnly) throw error;
@@ -264,12 +267,11 @@ export async function processRun(runId: string): Promise<void> {
       }
     }
 
-    const allFailed =
-      progress.unitsTotal > 0 && progress.errors.length >= progress.unitsTotal;
+    const hasFailedUnits = progress.failedIds.length > 0;
     await prisma.analysisRun.update({
       where: { id: runId },
       data: {
-        status: allFailed ? "failed" : "done",
+        status: hasFailedUnits ? "failed" : "done",
         finishedAt: new Date(),
         progressJson: JSON.stringify(progress),
         usageJson: JSON.stringify(usageTotal),
@@ -326,6 +328,7 @@ export async function getRunProgress(runId: string): Promise<RunStatusView | nul
   };
   // 兼容 Stage 0 之前的旧行：字段已由 chaptersDone/chaptersTotal/proposals 更名。
   if (!Array.isArray(progress.doneIds)) progress.doneIds = [];
+  if (!Array.isArray(progress.failedIds)) progress.failedIds = [];
   progress.unitsDone = progress.doneIds.length;
   if (typeof raw.proposals === "number" && typeof raw.produced !== "number") {
     progress.produced = raw.proposals;
@@ -394,10 +397,33 @@ export async function resumeRun(runId: string): Promise<RunStatusView | null> {
   if (!run) throw new AnalysisError("任务不存在。", 404);
   if (run.status === "done" || run.status === "canceled") return getRunProgress(runId);
   if (RUNNING.has(runId)) return getRunProgress(runId);
+  let progressJson = run.progressJson;
+  if (run.status === "failed") {
+    const stored = parseStoredInput(run.inputRangeJson);
+    const progress: Progress = {
+      ...seedProgress(stored.units.length),
+      ...(JSON.parse(run.progressJson || "{}") as Partial<Progress>),
+    };
+    // 旧记录没有 failedIds；只有未产生产物时才能安全地重跑所有单元。
+    const failedIds = Array.isArray(progress.failedIds) && progress.failedIds.length > 0
+      ? progress.failedIds
+      : progress.produced === 0 ? stored.units.map((unit) => unit.id) : [];
+    if (failedIds.length === 0 && progress.doneIds.length >= stored.units.length) {
+      throw new AnalysisError("旧任务无法安全地只重试失败单元，请重新发起该任务。");
+    }
+    const retryIds = new Set(failedIds);
+    progress.doneIds = progress.doneIds.filter((id) => !retryIds.has(id));
+    progress.unitsDone = progress.doneIds.length;
+    progress.failedIds = [];
+    progress.errors = [];
+    progress.currentUnitId = null;
+    progress.currentLabel = null;
+    progressJson = JSON.stringify(progress);
+  }
   await prisma.deviceInference.deleteMany({ where: { runId } });
   await prisma.analysisRun.update({
     where: { id: runId },
-    data: { status: "running", canceledAt: null, error: null },
+    data: { status: "running", canceledAt: null, error: null, progressJson },
   });
   void processRun(runId).catch(() => undefined);
   return getRunProgress(runId);
