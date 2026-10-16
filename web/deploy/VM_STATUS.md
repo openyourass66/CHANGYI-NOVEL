@@ -1,16 +1,21 @@
-# 当前虚拟机部署记录（2026-10-15，邮箱全验证码流程）
+# 当前虚拟机部署记录（2026-10-16，版本化 API 与设备推理支持）
 
-2026-10-16 仓库已开始 Windows 客户端与版本化 API 拆分；此文件仍记录上次实际部署，虚拟机尚未更新这批源码。连接新版客户端前，需部署包含共享契约的新源码包并应用设备推理表 migration。
+2026-10-16 已部署 `codex/client-server-split` 分支源码快照，基线提交 `02c25f5b3f7dea59137693e647bd552783dcc7e4`，包内含 231 个源码文件。源码包 SHA-256：`66979468044cf9b1e7297c3e7d41566e947b16a12251f1c25fc633cc1c41fe1e`。Compose 项目和原 PostgreSQL/应用数据卷保持不变；源码位于 `/root/novel-upload/novel-vm-2c985925/web`，应用镜像 ID `sha256:e817de9949cd50959ab4c4785e3badeca670b6e7a0929e0f76154790f9449e26`。
+
+部署前备份：`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T055422Z-H48o0n`，包含 `COMPLETE` 标记，数据库及文件归档 SHA-256 校验通过。
 
 ## 访问与目录
 
 - 浏览器：`http://192.168.150.102:3000/login`，仅供本人经 VMware 私有网络访问。
-- 当前运行源码：`/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web`。
+- 当前运行源码：`/root/novel-upload/novel-vm-2c985925/web`。
 - Compose 项目：`novel-selftest-20261015`；数据库未发布宿主机端口。
 - 私有配置：当前运行目录的 `.env.vm`，权限 0600；包含 Redis 连接配置，不进入源码包。
 - 开发分支：`feat/vm-deployment`，未提交、未推送；main 保持原提交。
 
 ## 已完成的实际检查
+
+- 部署包 SHA-256 校验和 VM Node/SQLite 运行时预检通过；PostgreSQL 隔离验证及 SQLite → PostgreSQL 迁移验证通过。
+- 新应用和 PostgreSQL 容器健康；`http://192.168.150.102:3000/api/health` 与登录页均返回 HTTP 200，应用容器重启计数为 0。
 
 - Debian Node 22.23.3 镜像构建、TypeScript 编译、Prisma PostgreSQL 引擎运行。
 - Redis 邮箱验证码版本已切换上线；应用与 PostgreSQL 容器 healthy，`/api/health` 返回 `{"status":"ok"}`，登录页可访问。
