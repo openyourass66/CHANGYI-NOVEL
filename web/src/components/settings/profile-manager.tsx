@@ -116,13 +116,14 @@ export function ProfileManager({
     setFormOpen(true);
   }
 
-  function openEdit(p: ProfileView) {
+  async function openEdit(p: ProfileView) {
+    const local = p.isLocal && window.changyi ? await window.changyi.localProfile(p.id) : null;
     setEditing(p);
     setForm({
       name: p.name,
       provider: p.provider,
       model: p.model,
-      baseUrl: p.baseUrl ?? "",
+      baseUrl: local?.baseUrl ?? p.baseUrl ?? "",
       apiKey: "",
       isLocal: p.isLocal,
     });
@@ -142,7 +143,8 @@ export function ProfileManager({
     }
     if (f.baseUrl.trim()) {
       try {
-        new URL(f.baseUrl.trim());
+        const url = new URL(f.baseUrl.trim());
+        if (local && window.changyi && (!["http:", "https:"].includes(url.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) e.baseUrl = "本地模型地址必须指向当前电脑。";
       } catch {
         e.baseUrl = "服务地址格式不正确";
       }
@@ -164,7 +166,8 @@ export function ProfileManager({
         baseUrl: form.baseUrl.trim(),
         isLocal: form.isLocal,
       };
-      if (form.apiKey.trim()) payload.apiKey = form.apiKey.trim();
+      if (form.isLocal && window.changyi) payload.baseUrl = "";
+      if (form.apiKey.trim() && !(form.isLocal && window.changyi)) payload.apiKey = form.apiKey.trim();
 
       const url = editing ? `/api/model-profiles/${editing.id}` : "/api/model-profiles";
       const res = await apiFetch(url, {
@@ -172,8 +175,12 @@ export function ProfileManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; profile?: ProfileView };
       if (!res.ok) throw new Error(data.error ?? "保存失败");
+      if (form.isLocal && window.changyi && data.profile) {
+        setEditing(data.profile);
+        await window.changyi.saveLocalProfile(data.profile.id, { provider: form.provider, model: form.model, baseUrl: form.baseUrl, apiKey: form.apiKey || undefined });
+      }
 
       toast.success(editing ? "档案已更新" : "档案已创建");
       setFormOpen(false);
@@ -190,6 +197,11 @@ export function ProfileManager({
   async function testConnection(p: ProfileView) {
     setTesting(p.id);
     try {
+      if (p.isLocal && window.changyi) {
+        const result = await window.changyi.infer(crypto.randomUUID(), p.id, { messages: [{ role: "user", content: "只回复 OK。" }], maxTokens: 16 });
+        toast.success("本机连接正常", { description: result.text.slice(0, 80) });
+        return;
+      }
       const res = await apiFetch(`/api/model-profiles/${p.id}/test`, { method: "POST" });
       const data = (await res.json()) as { ok?: boolean; sample?: string; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error ?? "连接失败");
@@ -221,6 +233,7 @@ export function ProfileManager({
       return;
     }
     toast.success("档案已删除");
+    if (window.changyi) await window.changyi.removeLocalProfile(deleteTarget.id).catch(() => toast.error("服务端档案已删除，本机凭据清理失败，请稍后重试。"));
     startTransition(() => router.refresh());
   }
 
@@ -302,7 +315,7 @@ export function ProfileManager({
                           )}
                           测试连接
                         </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => openEdit(p)}>
+                        <DropdownMenuItem onSelect={() => void openEdit(p).catch(() => toast.error("无法读取本机模型档案，请重新登录后重试。"))}>
                           <Pencil className="size-4" />
                           编辑
                         </DropdownMenuItem>

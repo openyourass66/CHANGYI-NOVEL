@@ -13,6 +13,7 @@
     "data:migrate": "tsx scripts/migrate-legacy.mts",
     "deploy:package": "tsx scripts/package-deploy.mts",
     "verify:auth": "node --conditions=react-server --import tsx scripts/verify-auth.mts",
+    "verify:desktop": "node --conditions=react-server --import tsx scripts/verify-desktop.mts",
     "verify:migration": "tsx scripts/verify-migration.mts",
     "verify:postgres-types": "tsx scripts/verify-postgres-types.mts",
     "verify:postgres": "tsx scripts/verify-postgres.mts"

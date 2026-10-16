@@ -21,6 +21,7 @@ export type ResolvedProfile = {
   baseUrl: string | null;
   apiKey: string | null;
   isLocal: boolean;
+  deviceOnly?: boolean;
 };
 
 export class AiError extends Error {

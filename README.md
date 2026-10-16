@@ -1,6 +1,6 @@
 # 小说理解与续写工作台
 
-本项目把长篇小说的导入、理解、故事记忆维护和续写流程整合到 Web 工作台中。原文以只读方式保存；分析结论、记忆和续写草稿单独记录。目前支持账号隔离，面向本人本机与虚拟机自测，尚未完成公网试用验收。
+本项目把长篇小说的导入、理解、故事记忆维护和续写流程整合到工作台中。提供 Next.js 服务端与浏览器工作台，以及通过版本化 API 连接服务的 Windows 桌面客户端。原文以只读方式保存；分析结论、记忆和续写草稿单独记录。目前支持账号隔离，面向本人本机与虚拟机自测，尚未完成公网试用验收。
 
 Web 应用不依赖同级的 `novel-continuation` 技能目录，单独克隆本仓库即可运行。应用内的记忆 Markdown 导入器已包含解析逻辑，无需安装该技能目录。
 
@@ -85,12 +85,20 @@ docker compose --env-file .env.vm logs -f app
 
 运行生成命令三次，将独立值分别填入 `.env.vm` 的 `POSTGRES_PASSWORD`、`APP_ENCRYPTION_KEY` 和 `BETTER_AUTH_SECRET`，并填写 SMTP 配置。将 `REDIS_URL` 指向虚拟机已运行的 Redis；默认示例使用 `redis://host.docker.internal:6379`，Redis 需要允许 Docker 网桥访问。新加密密钥不用于解密旧模型密文；迁移后需重新录入外部 API 密钥。将 `APP_BIND_ADDRESS` 设为回环地址或确认过的 host-only 网卡地址，同时将 `BETTER_AUTH_URL` 设为浏览器实际访问地址。首次启动应用 PostgreSQL 迁移；旧数据通过 `pnpm data:migrate` 显式绑定指定账号并核对记录、正文与文件哈希。停止服务使用 `docker compose --env-file .env.vm down`，不要加 `-v`。
 
+## Windows 客户端
+
+客户端入口位于 `desktop/`，源码开发、连接服务、本机模型、Windows 安装包和检查命令见 [客户端说明](desktop/README.md)。首次连接前先更新服务端源码并备份、应用数据库迁移；新增的设备推理工作表同时提供 SQLite 和 PostgreSQL migration。Docker 启动时自动应用 PostgreSQL migration。
+
+网页和桌面复用工作台组件，桌面运行时只加载本地打包资源，通过 `/api/v1` 访问服务，不需要安装 Node.js 或数据库。云端模型密钥留在服务端；本机模型密钥和登录 Cookie 使用 Windows 安全存储加密保存，不返回页面。项目数据集中存储在服务端，目前没有离线编辑和双向同步。
+
+在 `web/` 运行 `pnpm verify:desktop` 可启动 Windows 隐藏窗口，通过真实 Next.js 接口、隔离数据库、认证 Redis 协议测试替身和本机模型替身，验证登录、上传、阅读、设备推理、提案、记忆保存和导出。两侧需先安装依赖并构建；真实供应商、本机 Ollama/LM Studio 和部署 PostgreSQL 仍需目标环境实测。
+
 ## 数据与隐私
 
 - 默认数据库和小说文件位于 `web/data/`；可通过 `NOVEL_DATA_DIR` 指定其他数据目录。
 - `web/.env` 中的 `APP_ENCRYPTION_KEY` 用于在本机加密模型 API 密钥。请妥善备份该密钥；丢失后无法解密已保存的模型密钥。
 - `.env*` 中的真实配置、本机数据库、导入的小说原文和 `.verify/` 生成文件已加入忽略规则，不应提交到 Git。环境变量示例及不含私有数据的验证脚本随代码维护。
-- 云端模型只在用户确认授权后接收预览中说明的数据，由用户提供密钥并承担费用。本机开发可访问本机模型端点；虚拟机部署禁用本地推理，Ollama/LM Studio 的设备执行流程等待 Windows 桌面端实现。
+- 云端模型只在用户确认授权后接收预览中说明的数据，由用户提供密钥并承担费用。本机开发可访问本机模型端点；虚拟机不访问用户设备的 localhost，Ollama/LM Studio 通过 Windows 客户端的设备执行协议在当前电脑调用。
 - 账号密码与持久会话保存在数据库；验证码、认证限流及会话缓存保存在 Redis。邮箱验证码为 6 位数字，5 分钟过期并限制校验次数；注册、邮箱验证和密码找回都通过邮件验证码，不发送邮件操作链接。浏览器使用 HttpOnly、SameSite Cookie；HTTPS 地址使用 Secure Cookie。认证与数据库日志不输出正文、密码或令牌。
 - 当前自测认证采用整个实例共享的 Redis 限流桶。远程试用前需补足可信代理 IP 配置、机器人防护及邮件监控。
 - 重新导入原文会清除依赖旧原文的章节分析、记忆、续写方向、草稿、连续性问题和记忆提案。需要保留的项目数据应先导出。
@@ -105,6 +113,8 @@ Docker 构建上下文现在为仓库根目录，通过根目录 `.dockerignore`
 ```text
 .
 ├── README.md                  # 项目说明与运行指南
+├── desktop/                   # Windows Electron 客户端、本机模型与安全存储
+├── packages/contracts/        # 共享 API 类型和领域展示结构
 └── web/
     ├── prisma/                # SQLite 数据模型与迁移
     ├── prisma-postgresql/     # PostgreSQL 部署模型与迁移

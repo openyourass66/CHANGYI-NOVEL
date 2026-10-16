@@ -3,6 +3,7 @@ export type { Progress, RunUnitView, RunStatusView } from "@contracts/api";
 import "server-only";
 import { prisma } from "@/lib/db";
 import { resolveProfile } from "@/lib/ai/client";
+import { deviceExecution } from "@/lib/ai/device-inference";
 import { AnalysisError } from "@/lib/ai/errors";
 import { getTask, getTaskOrNull } from "@/lib/ai/tasks/registry";
 import type { ChatUsage } from "@/lib/ai/types";
@@ -29,9 +30,10 @@ export function isProcessing(runId: string): boolean {
 
 
 
-type StoredInput = { payload: RunPayload; units: TaskUnit[] };
+type StoredInput = { payload: RunPayload; units: TaskUnit[]; deviceId?: string };
 
 export type StartOptions = {
+  deviceId?: string;
   taskType: string;
   profileId: string;
   authorized?: boolean;
@@ -72,14 +74,14 @@ function normalizePayload(opts: StartOptions): RunPayload {
 
 /** 解析 inputRangeJson。新格式为 {payload, units}；旧格式 {chapterIds} 兼容合成单元。 */
 function parseStoredInput(json: string): StoredInput {
-  let raw: { payload?: RunPayload; units?: TaskUnit[]; chapterIds?: string[] } = {};
+  let raw: { payload?: RunPayload; units?: TaskUnit[]; chapterIds?: string[]; deviceId?: string } = {};
   try {
     raw = JSON.parse(json || "{}");
   } catch {
     raw = {};
   }
   if (Array.isArray(raw.units)) {
-    return { payload: raw.payload ?? {}, units: raw.units };
+    return { payload: raw.payload ?? {}, units: raw.units, deviceId: raw.deviceId };
   }
   const ids = Array.isArray(raw.chapterIds) ? raw.chapterIds : [];
   return {
@@ -114,7 +116,7 @@ export async function startAnalysisRun(
   const project = await prisma.novelProject.findUnique({ where: { id: projectId } });
   if (!project?.ownerId) throw new AnalysisError("项目不存在。", 404);
 
-  const profile = await resolveProfile(opts.profileId, project.ownerId);
+  const profile = await resolveProfile(opts.profileId, project.ownerId, Boolean(opts.deviceId));
   if (!profile.isLocal && opts.authorized !== true) {
     throw new AnalysisError("远端模型需要用户授权后才能发送原文。", 403);
   }
@@ -129,7 +131,7 @@ export async function startAnalysisRun(
   }
 
   const progress = seedProgress(units.length);
-  const stored: StoredInput = { payload, units };
+  const stored: StoredInput = { payload, units, deviceId: profile.deviceOnly ? opts.deviceId : undefined };
 
   const run = await prisma.analysisRun.create({
     data: {
@@ -166,8 +168,9 @@ export async function processRun(runId: string): Promise<void> {
       return;
     }
 
+    const stored = parseStoredInput(run.inputRangeJson);
     const project = await prisma.novelProject.findUnique({ where: { id: run.projectId }, select: { ownerId: true } });
-    const profile = run.modelProfileId && project?.ownerId ? await resolveProfile(run.modelProfileId, project.ownerId) : null;
+    const profile = run.modelProfileId && project?.ownerId ? await resolveProfile(run.modelProfileId, project.ownerId, Boolean(stored.deviceId)) : null;
     if (!profile) {
       await prisma.analysisRun.update({
         where: { id: runId },
@@ -176,7 +179,6 @@ export async function processRun(runId: string): Promise<void> {
       return;
     }
 
-    const stored = parseStoredInput(run.inputRangeJson);
     const progress: Progress = {
       ...seedProgress(stored.units.length),
       ...(JSON.parse(run.progressJson || "{}") as Partial<Progress>),
@@ -235,13 +237,13 @@ export async function processRun(runId: string): Promise<void> {
         await saveProgress(runId, progress);
 
         try {
-          const out = await task.runUnit(unit, {
+          const out = await deviceExecution.run({ runId, deviceId: stored.deviceId }, () => task.runUnit(unit, {
             runId,
             projectId: run.projectId,
             profile,
             payload: stored.payload,
             isCanceled,
-          });
+          }));
           usageTotal = sumUsage(usageTotal, out.usage);
           progress.produced += out.produced;
           if (out.errors && out.errors.length > 0) progress.errors.push(...out.errors);
@@ -251,6 +253,8 @@ export async function processRun(runId: string): Promise<void> {
           const label = unit.chapterId ? `《${unit.label}》` : unit.label;
           progress.errors.push(`${label}：${message}`);
           if (unit.chapterId) await setChapterStatus(unit.chapterId, "failed");
+          // 设备断开时保留未完成单元，恢复后重新领取，避免逐章空跑并标记为已处理。
+          if (profile.deviceOnly) throw error;
         }
         progress.currentUnitId = null;
         progress.currentLabel = null;
@@ -274,8 +278,8 @@ export async function processRun(runId: string): Promise<void> {
     });
   } catch (error) {
     await prisma.analysisRun
-      .update({
-        where: { id: runId },
+      .updateMany({
+        where: { id: runId, status: { not: "canceled" } },
         data: {
           status: "failed",
           finishedAt: new Date(),
@@ -389,6 +393,8 @@ export async function resumeRun(runId: string): Promise<RunStatusView | null> {
   const run = await prisma.analysisRun.findUnique({ where: { id: runId } });
   if (!run) throw new AnalysisError("任务不存在。", 404);
   if (run.status === "done" || run.status === "canceled") return getRunProgress(runId);
+  if (RUNNING.has(runId)) return getRunProgress(runId);
+  await prisma.deviceInference.deleteMany({ where: { runId } });
   await prisma.analysisRun.update({
     where: { id: runId },
     data: { status: "running", canceledAt: null, error: null },
@@ -404,6 +410,7 @@ export async function cancelRun(runId: string): Promise<RunStatusView | null> {
     where: { id: runId },
     data: { status: "canceled", canceledAt: new Date(), finishedAt: new Date() },
   });
+  await prisma.deviceInference.updateMany({ where: { runId, status: { in: ["pending", "claimed"] } }, data: { status: "canceled", requestJson: "{}", responseJson: null, leaseTokenHash: null } });
   return getRunProgress(runId);
 }
 

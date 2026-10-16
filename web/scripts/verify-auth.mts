@@ -7,6 +7,8 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { startRedisFixture } from "./lib/redis-fixture.mts";
+import { verifyDevice } from "./lib/verify-device.mts";
+import { verifyDesktop } from "./lib/verify-desktop.mts";
 
 const workspace = path.resolve(".verify/auth", randomUUID());
 await mkdir(workspace, { recursive: true });
@@ -172,6 +174,8 @@ try {
   const localProfile = await prisma.modelProfile.create({ data: { userId: users[0].id, name: "local", provider: "ollama", model: "test", isLocal: true, executionLocation: "device" } });
   const localAttempt = await request(`/api/model-profiles/${localProfile.id}/test`, cookies[0], "POST", {});
   assert.equal(localAttempt.status, 400, "部署服务必须拒绝设备本地模型执行");
+  await verifyDevice(prisma, request, cookies, projectId, localProfile.id);
+  if (process.env.VERIFY_DESKTOP === "1") await verifyDesktop(baseURL, emails[0], password);
   assert.equal((await request(`/api/projects/${projectId}/export`, cookies[0])).status, 200);
 
   assert.equal((await authRequest("/request-password-reset", { email: emails[0], redirectTo: `${baseURL}/login?mode=reset` })).status, 400, "邮件链接找回密码必须停用");

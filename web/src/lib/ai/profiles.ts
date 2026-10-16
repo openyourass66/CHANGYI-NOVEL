@@ -83,6 +83,7 @@ export async function createProfile(input: ProfileInput): Promise<ProfileView> {
   if (!isLocal && !input.apiKey?.trim()) {
     throw new Error("该供应商需要 API 密钥。");
   }
+  if (isLocal && process.env.ALLOW_SERVER_LOCAL_MODELS === "false" && input.apiKey?.trim()) throw new Error("本地模型密钥请在桌面客户端保存到当前设备。");
   const encrypted = input.apiKey?.trim() ? encryptSecret(input.apiKey.trim()) : null;
 
   const count = await prisma.modelProfile.count({ where: { userId: user.id } });
@@ -93,7 +94,7 @@ export async function createProfile(input: ProfileInput): Promise<ProfileView> {
       name: input.name,
       provider: input.provider,
       model: input.model,
-      baseUrl: input.baseUrl?.trim() || null,
+      baseUrl: isLocal && process.env.ALLOW_SERVER_LOCAL_MODELS === "false" ? null : input.baseUrl?.trim() || null,
       apiKeyEncrypted: encrypted,
       isLocal,
       isDefault: count === 0,
@@ -113,6 +114,7 @@ export async function updateProfile(
   const isLocal = resolveIsLocal(provider, input.isLocal);
 
   let apiKeyEncrypted = existing.apiKeyEncrypted;
+  if (isLocal && process.env.ALLOW_SERVER_LOCAL_MODELS === "false" && input.apiKey?.trim()) throw new Error("本地模型密钥请在桌面客户端保存到当前设备。");
   if (input.clearApiKey) {
     apiKeyEncrypted = null;
   } else if (input.apiKey?.trim()) {
@@ -121,6 +123,7 @@ export async function updateProfile(
   if (!isLocal && !apiKeyEncrypted) {
     throw new Error("该供应商需要 API 密钥。");
   }
+  if (isLocal && process.env.ALLOW_SERVER_LOCAL_MODELS === "false") apiKeyEncrypted = null;
 
   const profile = await prisma.modelProfile.update({
     where: { id },
@@ -129,7 +132,7 @@ export async function updateProfile(
       provider,
       model: input.model ?? existing.model,
       baseUrl:
-        input.baseUrl === undefined ? existing.baseUrl : input.baseUrl.trim() || null,
+        isLocal && process.env.ALLOW_SERVER_LOCAL_MODELS === "false" ? null : input.baseUrl === undefined ? existing.baseUrl : input.baseUrl.trim() || null,
       apiKeyEncrypted,
       isLocal,
       executionLocation: isLocal ? "device" : "server",

@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
 import { LOCAL_PROVIDERS, type ModelProvider } from "@/lib/domain";
+import { requestDeviceInference } from "@/lib/ai/device-inference";
 import {
   AiError,
   type ChatRequest,
@@ -160,6 +161,7 @@ export async function runChat(
   profile: ResolvedProfile,
   request: ChatRequest,
 ): Promise<ChatResult> {
+  if (profile.deviceOnly) return requestDeviceInference(profile.id, request);
   switch (profile.provider) {
     case "anthropic":
       return runAnthropic(profile, request);
@@ -173,15 +175,16 @@ export async function runChat(
 }
 
 /** 从数据库档案解析出运行时档案（含明文密钥）。仅服务端调用。 */
-export async function resolveProfile(profileId: string, userId: string): Promise<ResolvedProfile> {
+export async function resolveProfile(profileId: string, userId: string, allowDevice = false): Promise<ResolvedProfile> {
   const row = await prisma.modelProfile.findFirst({ where: { id: profileId, userId } });
   if (!row) throw new AiError("模型档案不存在。");
   const isLocal = row.isLocal || LOCAL_PROVIDERS.includes(row.provider as ModelProvider);
-  if ((isLocal || row.executionLocation === "device") && process.env.ALLOW_SERVER_LOCAL_MODELS === "false") {
+  if ((isLocal || row.executionLocation === "device") && process.env.ALLOW_SERVER_LOCAL_MODELS === "false" && !allowDevice) {
     throw new AiError("本地模型需要由桌面客户端在所属设备上调用；当前虚拟机服务不执行本地模型请求。");
   }
   let apiKey: string | null = null;
-  if (row.apiKeyEncrypted) {
+  const deviceOnly = isLocal && allowDevice;
+  if (row.apiKeyEncrypted && !deviceOnly) {
     try {
       apiKey = decryptSecret(row.apiKeyEncrypted);
     } catch {
@@ -196,5 +199,6 @@ export async function resolveProfile(profileId: string, userId: string): Promise
     baseUrl: row.baseUrl,
     apiKey,
     isLocal,
+    deviceOnly,
   };
 }

@@ -19,7 +19,7 @@ export async function previewRun(
 ): Promise<RunPreview> {
   const project = await prisma.novelProject.findUnique({ where: { id: projectId }, select: { ownerId: true } });
   if (!project?.ownerId) throw new AnalysisError("项目不存在。", 404);
-  const profile = await resolveProfile(opts.profileId, project.ownerId);
+  const profile = await resolveProfile(opts.profileId, project.ownerId, true);
   const task = getTask(opts.taskType);
 
   const payload: RunPayload =

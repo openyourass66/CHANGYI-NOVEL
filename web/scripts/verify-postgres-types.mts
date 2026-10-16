@@ -22,7 +22,7 @@ await writeFile(config, JSON.stringify({
   extends: path.join(root, "tsconfig.json"),
   compilerOptions: {
     baseUrl: root,
-    paths: { "@/*": ["src/*"], "@prisma/client": [path.join(output, "client")] },
+    paths: { "@/*": ["src/*"], "@contracts/*": ["../packages/contracts/src/*"], "@prisma/client": [path.join(output, "client")] },
     tsBuildInfoFile: path.join(output, "tsconfig.tsbuildinfo"),
   },
 }, null, 2));

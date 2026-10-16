@@ -1,0 +1,5 @@
+@import "../../web/src/app/globals.css";
+@source "../../web/src/components";
+@source "../../packages/contracts/src";
+@source "./";
+body { margin: 0; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }

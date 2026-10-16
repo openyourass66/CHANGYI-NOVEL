@@ -1,0 +1,7 @@
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+overrides:
+  # 安装器使用 ElectronDownloadCacheMode，要求 @electron/get v5。
+  'app-builder-lib>@electron/get': 5.1.0

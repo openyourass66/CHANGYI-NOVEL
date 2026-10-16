@@ -79,6 +79,7 @@ export function useAnalysisRun(options: {
           profileId: args.profileId,
           payload: args.payload,
           authorized,
+          deviceId: window.changyi ? (await window.changyi.configuration()).deviceId : undefined,
         }),
       });
       const data = (await res.json()) as { runId?: string; error?: string };
@@ -118,6 +119,7 @@ export function useAnalysisRun(options: {
           setAuthOpen(true);
           return;
         }
+        if (window.changyi && !(await window.changyi.localProfile(args.profileId))) throw new Error("请先在当前设备的设置中保存并测试该本地模型档案。");
         await launch(args, false);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "启动失败");
