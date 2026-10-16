@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import { FileUp, Loader2, UploadCloud } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -44,12 +44,12 @@ export function ImportPanel({
         error?: string;
       };
       if (!res.ok || !data.result) throw new Error(data.error ?? "导入失败");
-      toast.success(`已解析 ${data.result.chapterCount} 个章节`);
+      notify.success(`已解析 ${data.result.chapterCount} 个章节`);
       setFile(null);
       onImported?.(data.result);
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "导入失败");
+      notify.error(err instanceof Error ? err.message : "导入失败");
     } finally {
       setUploading(false);
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import { Loader2, Plus, Trash2, UserRound } from "lucide-react";
 import {
   AlertDialog,
@@ -63,7 +63,7 @@ export function KnowledgePanel({
     const name = characterName.trim();
     const info = infoItem.trim();
     if (!name || !info) {
-      toast.error("请填写人物与信息条目");
+      notify.error("请填写人物与信息条目");
       return;
     }
     setAdding(true);
@@ -78,9 +78,9 @@ export function KnowledgePanel({
       const created = data.item;
       setItems((prev) => [...prev, created]);
       setInfoItem("");
-      toast.success("已添加认知");
+      notify.success("已添加认知");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "添加失败");
+      notify.error(err instanceof Error ? err.message : "添加失败");
     } finally {
       setAdding(false);
     }
@@ -103,7 +103,7 @@ export function KnowledgePanel({
       const updated = data.item;
       setItems((prev) => prev.map((it) => (it.id === item.id ? updated : it)));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "更新失败");
+      notify.error(err instanceof Error ? err.message : "更新失败");
     } finally {
       setBusyId(null);
     }
@@ -115,9 +115,9 @@ export function KnowledgePanel({
       const res = await fetch(`/api/knowledge/${item.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
       setItems((prev) => prev.filter((it) => it.id !== item.id));
-      toast.success("已删除认知");
+      notify.success("已删除认知");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "删除失败");
+      notify.error(err instanceof Error ? err.message : "删除失败");
     } finally {
       setBusyId(null);
       setDeleteTarget(null);

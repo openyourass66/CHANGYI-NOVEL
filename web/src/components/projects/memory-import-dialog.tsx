@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import { CircleCheck, FileText, Loader2, TriangleAlert, Upload, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -98,14 +98,14 @@ export function MemoryImportDialog({
       setSummary(data.summary);
       const { imported, skipped, knowledge } = data.summary.totals;
       if (imported + knowledge > 0) {
-        toast.success(`已导入 ${imported} 条记忆、${knowledge} 条人物认知`);
+        notify.success(`已导入 ${imported} 条记忆、${knowledge} 条人物认知`);
         onImported();
         router.refresh();
       } else {
-        toast.info(skipped > 0 ? "没有新增条目：均已存在" : "没有可导入的条目");
+        notify.info(skipped > 0 ? "没有新增条目：均已存在" : "没有可导入的条目");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "导入失败");
+      notify.error(err instanceof Error ? err.message : "导入失败");
     } finally {
       setImporting(false);
     }

@@ -83,6 +83,36 @@ function mapUsage(usage: unknown): ChatUsage {
   };
 }
 
+function addUsage(first: ChatUsage, second: ChatUsage): ChatUsage {
+  const sum = (a?: number, b?: number) => a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
+  return {
+    promptTokens: sum(first.promptTokens, second.promptTokens),
+    completionTokens: sum(first.completionTokens, second.completionTokens),
+    totalTokens: sum(first.totalTokens, second.totalTokens),
+  };
+}
+
+type ChatCompletionChoice = { message?: { content?: unknown }; finish_reason?: unknown };
+
+function firstChoice(data: Record<string, unknown>): ChatCompletionChoice | undefined {
+  return (data.choices as ChatCompletionChoice[] | undefined)?.[0];
+}
+
+function contentOf(choice?: ChatCompletionChoice): string | null {
+  const content = choice?.message?.content;
+  return typeof content === "string" && content.trim() ? content : null;
+}
+
+function emptyContentError(profile: ResolvedProfile, choice?: ChatCompletionChoice): AiError {
+  const reason = choice?.finish_reason;
+  const detail = reason === "length"
+    ? "模型输出达到长度上限，未返回正文。请缩小任务范围或调整模型输出额度。"
+    : reason === "content_filter"
+      ? "模型未返回正文：内容被模型服务过滤。"
+      : "模型响应缺少内容。";
+  return new AiError(detail, { provider: profile.provider, model: profile.model });
+}
+
 /** OpenAI 兼容接口：OpenAI 官方、DeepSeek、通义，以及 Ollama / LM Studio 的 /v1 端点。 */
 async function runOpenAiCompatible(
   profile: ResolvedProfile,
@@ -101,12 +131,32 @@ async function runOpenAiCompatible(
   if (request.json) body.response_format = { type: "json_object" };
 
   const data = await postJson(`${base}/chat/completions`, headers, body, profile);
-  const choices = data.choices as Array<{ message?: { content?: unknown } }> | undefined;
-  const text = choices?.[0]?.message?.content;
-  if (typeof text !== "string" || !text.trim()) {
-    throw new AiError("模型响应缺少内容。", { provider: profile.provider, model: profile.model });
+  const choice = firstChoice(data);
+  const text = contentOf(choice);
+  if (text) return { text, usage: mapUsage(data.usage) };
+
+  // DeepSeek 官方记录了 JSON 模式偶发空内容。仅对其官方接口的结构化请求
+  // 重试一次：关闭思考模式，并明确要求输出 JSON；不重试内容过滤结果。
+  if (request.json && new URL(base).hostname === "api.deepseek.com"
+    && choice?.finish_reason !== "content_filter" && choice?.finish_reason !== "aborted") {
+    const retryData = await postJson(`${base}/chat/completions`, headers, {
+      ...body,
+      max_tokens: Math.max(request.maxTokens ?? 4096, 8192),
+      thinking: { type: "disabled" },
+      messages: [
+        ...request.messages,
+        { role: "user", content: "请根据上文直接输出非空 JSON 对象，以 { 开始、以 } 结束；不要解释。" },
+      ],
+    }, profile);
+    const retryChoice = firstChoice(retryData);
+    const retryText = contentOf(retryChoice);
+    if (retryText) {
+      return { text: retryText, usage: addUsage(mapUsage(data.usage), mapUsage(retryData.usage)) };
+    }
+    throw emptyContentError(profile, retryChoice);
   }
-  return { text, usage: mapUsage(data.usage) };
+
+  throw emptyContentError(profile, choice);
 }
 
 /** Anthropic Messages API。 */

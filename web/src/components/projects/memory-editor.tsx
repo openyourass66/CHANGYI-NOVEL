@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import { History, Loader2, MapPin, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -147,26 +147,26 @@ export function MemoryEditor({
     const c = citations[index];
     const excerpt = c.excerpt.trim();
     if (!c.chapterId || !excerpt) {
-      toast.error("请先选择章节并填写片段");
+      notify.error("请先选择章节并填写片段");
       return;
     }
     try {
       const text = await loadChapterContent(c.chapterId);
       const at = text.indexOf(excerpt);
       if (at < 0) {
-        toast.error("未在该章节中找到该片段，请核对文字");
+        notify.error("未在该章节中找到该片段，请核对文字");
         return;
       }
       updateCitation(index, { startOffset: at, endOffset: at + excerpt.length });
-      toast.success(`已定位到第 ${at} 字`);
+      notify.success(`已定位到第 ${at} 字`);
     } catch {
-      toast.error("定位失败");
+      notify.error("定位失败");
     }
   }
 
   async function save() {
     if (!content.trim()) {
-      toast.error("内容不能为空");
+      notify.error("内容不能为空");
       return;
     }
     setSaving(true);
@@ -191,10 +191,10 @@ export function MemoryEditor({
       });
       const data = (await res.json()) as { entry?: MemoryEntryView; error?: string };
       if (!res.ok || !data.entry) throw new Error(data.error ?? "保存失败");
-      toast.success(editing ? "已保存新版本" : "已创建记忆条目");
+      notify.success(editing ? "已保存新版本" : "已创建记忆条目");
       onSaved(data.entry);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      notify.error(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -206,10 +206,10 @@ export function MemoryEditor({
     try {
       const res = await fetch(`/api/memory/${entry.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
-      toast.success("条目及其历史版本已删除");
+      notify.success("条目及其历史版本已删除");
       onDeleted(entry.id);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "删除失败");
+      notify.error(err instanceof Error ? err.message : "删除失败");
     } finally {
       setDeleting(false);
       setConfirmDelete(false);
@@ -224,7 +224,7 @@ export function MemoryEditor({
       const data = (await res.json()) as { history?: MemoryEntryView[] };
       setHistory(data.history ?? []);
     } catch {
-      toast.error("加载历史失败");
+      notify.error("加载历史失败");
     } finally {
       setLoadingHistory(false);
     }
@@ -241,10 +241,10 @@ export function MemoryEditor({
       });
       const data = (await res.json()) as { entry?: MemoryEntryView; error?: string };
       if (!res.ok || !data.entry) throw new Error(data.error ?? "恢复失败");
-      toast.success(`已恢复到第 ${revision} 版`);
+      notify.success(`已恢复到第 ${revision} 版`);
       onSaved(data.entry);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "恢复失败");
+      notify.error(err instanceof Error ? err.message : "恢复失败");
     } finally {
       setSaving(false);
     }

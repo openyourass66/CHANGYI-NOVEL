@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import type { RunPreview } from "@/lib/ai/preview";
 import type { RunStatusView } from "@/lib/ai/runner";
 import type { RunPayload } from "@/lib/ai/tasks/types";
@@ -39,7 +39,7 @@ export function useAnalysisRun(options: {
     settledRef.current = onSettled;
   }, [onSettled]);
 
-  const runActive = run?.status === "running" || run?.status === "pending";
+  const runActive = Boolean(runId && !run) || run?.status === "running" || run?.status === "pending";
 
   useEffect(() => {
     if (!runId || !runActive) return;
@@ -85,7 +85,7 @@ export function useAnalysisRun(options: {
       setPreview(null);
       setRunId(data.runId);
       setRun(null);
-      toast.success("任务已开始");
+      notify.success("任务已开始");
     },
     [projectId],
   );
@@ -93,7 +93,7 @@ export function useAnalysisRun(options: {
   const start = useCallback(
     async (args: StartRunArgs) => {
       if (!args.profileId) {
-        toast.error("请先在设置中新增模型档案。");
+        notify.error("请先在设置中新增模型档案。");
         return;
       }
       pendingArgs.current = args;
@@ -118,7 +118,7 @@ export function useAnalysisRun(options: {
         }
         await launch(args, false);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "启动失败");
+        notify.error(error instanceof Error ? error.message : "启动失败");
       } finally {
         setBusy(false);
       }
@@ -133,7 +133,7 @@ export function useAnalysisRun(options: {
     try {
       await launch(args, true);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "启动失败");
+      notify.error(error instanceof Error ? error.message : "启动失败");
     } finally {
       setAuthorizing(false);
     }
@@ -148,9 +148,9 @@ export function useAnalysisRun(options: {
         const data = (await res.json()) as { run?: RunStatusView; error?: string };
         if (!res.ok) throw new Error(data.error ?? "操作失败");
         if (data.run) setRun(data.run);
-        toast.success(action === "cancel" ? "已请求取消" : "已重新开始处理");
+        notify.success(action === "cancel" ? "已请求取消" : "已重新开始处理");
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "操作失败");
+        notify.error(error instanceof Error ? error.message : "操作失败");
       } finally {
         setBusy(false);
       }

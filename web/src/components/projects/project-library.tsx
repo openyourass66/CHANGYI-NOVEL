@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import {
   BookOpen,
   Clock,
@@ -58,7 +58,6 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [genre, setGenre] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
@@ -66,7 +65,7 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
 
   async function create() {
     if (!name.trim()) {
-      setError("请填写项目名称");
+      notify.error("请填写项目名称");
       return;
     }
     setSaving(true);
@@ -78,13 +77,13 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
       });
       const data = (await res.json()) as { project?: { id: string }; error?: string };
       if (!res.ok || !data.project) throw new Error(data.error ?? "创建失败");
-      toast.success("项目已创建");
+      notify.success("项目已创建");
       setOpen(false);
       setName("");
       setGenre("");
       router.push(`/projects/${data.project.id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "创建失败");
+      notify.error(err instanceof Error ? err.message : "创建失败");
     } finally {
       setSaving(false);
     }
@@ -104,14 +103,14 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
       };
       if (!res.ok || !data.project) throw new Error(data.error ?? "恢复失败");
       const dropped = data.summary?.droppedCitations ?? 0;
-      toast.success(
+      notify.success(
         `已恢复到「${data.project.name}」：${data.summary?.chapterCount ?? 0} 章、${data.summary?.memoryCount ?? 0} 条记忆${
           dropped > 0 ? `，${dropped} 条引用因备份缺少定位信息被丢弃` : ""
         }`,
       );
       router.push(`/projects/${data.project.id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "恢复失败");
+      notify.error(err instanceof Error ? err.message : "恢复失败");
     } finally {
       setRestoring(false);
     }
@@ -123,11 +122,11 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
     setDeleteTarget(null);
     const res = await fetch(`/api/projects/${target.id}`, { method: "DELETE" });
     if (!res.ok) {
-      toast.error("删除失败");
+      notify.error("删除失败");
       return;
     }
     setItems((prev) => prev.filter((p) => p.id !== target.id));
-    toast.success("项目已删除");
+    notify.success("项目已删除");
     startTransition(() => router.refresh());
   }
 
@@ -188,13 +187,14 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((p) => (
             <li key={p.id}>
-              <Card className="h-full transition-colors duration-200 hover:border-primary/40">
+              <Card className="relative h-full transition-colors duration-200 hover:border-primary/40">
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-base">
                       <Link
                         href={`/projects/${p.id}`}
-                        className="rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`打开项目：${p.name}`}
+                        className="after:absolute after:inset-0 after:content-[''] rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {p.name}
                       </Link>
@@ -204,7 +204,7 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8"
+                          className="relative z-10 size-8"
                           aria-label={`${p.name} 的操作`}
                         >
                           <MoreHorizontal className="size-4" />
@@ -265,10 +265,8 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="例如：某部网文续写"
-                aria-invalid={Boolean(error)}
                 autoFocus
               />
-              {error && <p className="text-xs text-destructive">{error}</p>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pj-genre">体裁（可选）</Label>

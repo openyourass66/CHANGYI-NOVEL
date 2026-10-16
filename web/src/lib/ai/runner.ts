@@ -34,6 +34,8 @@ type Progress = {
   errors: string[];
   /** 本次任务已处理的单元，用于中断后 resume 时避免重复处理（不影响新任务重跑）。 */
   doneIds: string[];
+  /** 本次任务处理失败的单元；恢复时只重新处理这些单元。旧运行记录可能缺少此字段。 */
+  failedIds: string[];
   /** 正在处理的单元，供前端显示「正在处理第 N 章…」；空闲时为 null。 */
   currentUnitId: string | null;
   currentLabel: string | null;
@@ -67,6 +69,7 @@ function seedProgress(unitsTotal: number): Progress {
     produced: 0,
     errors: [],
     doneIds: [],
+    failedIds: [],
     currentUnitId: null,
     currentLabel: null,
   };
@@ -190,6 +193,7 @@ export async function processRun(runId: string): Promise<void> {
       ...seedProgress(stored.units.length),
       ...(JSON.parse(run.progressJson || "{}") as Partial<Progress>),
     };
+    if (!Array.isArray(progress.failedIds)) progress.failedIds = [];
 
     // 以存下的单元为准，与当前有效单元取交集（容忍章节被删除）；交集为空则保留原单元。
     let units = stored.units;
@@ -218,7 +222,7 @@ export async function processRun(runId: string): Promise<void> {
       return current?.status === "canceled";
     };
 
-    let usageTotal: ChatUsage = {};
+    let usageTotal: ChatUsage = JSON.parse(run.usageJson || "{}") as ChatUsage;
 
     for (let b = 0; b < progress.batchTotal; b++) {
       const slice = units.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
@@ -259,6 +263,7 @@ export async function processRun(runId: string): Promise<void> {
           const message = error instanceof Error ? error.message : "未知错误";
           const label = unit.chapterId ? `《${unit.label}》` : unit.label;
           progress.errors.push(`${label}：${message}`);
+          progress.failedIds.push(unit.id);
           if (unit.chapterId) await setChapterStatus(unit.chapterId, "failed");
         }
         progress.currentUnitId = null;
@@ -269,12 +274,11 @@ export async function processRun(runId: string): Promise<void> {
       }
     }
 
-    const allFailed =
-      progress.unitsTotal > 0 && progress.errors.length >= progress.unitsTotal;
+    const hasFailedUnits = progress.failedIds.length > 0;
     await prisma.analysisRun.update({
       where: { id: runId },
       data: {
-        status: allFailed ? "failed" : "done",
+        status: hasFailedUnits ? "failed" : "done",
         finishedAt: new Date(),
         progressJson: JSON.stringify(progress),
         usageJson: JSON.stringify(usageTotal),
@@ -356,6 +360,7 @@ export async function getRunProgress(runId: string): Promise<RunStatusView | nul
   };
   // 兼容 Stage 0 之前的旧行：字段已由 chaptersDone/chaptersTotal/proposals 更名。
   if (!Array.isArray(progress.doneIds)) progress.doneIds = [];
+  if (!Array.isArray(progress.failedIds)) progress.failedIds = [];
   progress.unitsDone = progress.doneIds.length;
   if (typeof raw.proposals === "number" && typeof raw.produced !== "number") {
     progress.produced = raw.proposals;
@@ -365,6 +370,7 @@ export async function getRunProgress(runId: string): Promise<RunStatusView | nul
   delete progress.proposals;
 
   const doneSet = new Set(progress.doneIds);
+  const failedSet = new Set(progress.failedIds);
 
   // 视图层面的「已中断」：DB 仍是 running（便于 /resume 接管），但已无处理器且久未更新进度。
   const stalled =
@@ -388,7 +394,9 @@ export async function getRunProgress(runId: string): Promise<RunStatusView | nul
           ? (chapter?.analysisStatus ?? "pending")
           : doneSet.has(u.id)
             ? "done"
-            : "pending";
+            : failedSet.has(u.id)
+              ? "failed"
+              : "pending";
     return {
       id: u.id,
       index: i + 1,
@@ -423,9 +431,31 @@ export async function resumeRun(runId: string): Promise<RunStatusView | null> {
   const run = await prisma.analysisRun.findUnique({ where: { id: runId } });
   if (!run) throw new AnalysisError("任务不存在。", 404);
   if (run.status === "done" || run.status === "canceled") return getRunProgress(runId);
+  let progressJson = run.progressJson;
+  if (run.status === "failed") {
+    const stored = parseStoredInput(run.inputRangeJson);
+    const progress: Progress = {
+      ...seedProgress(stored.units.length),
+      ...(JSON.parse(run.progressJson || "{}") as Partial<Progress>),
+    };
+    const failedIds = Array.isArray(progress.failedIds) && progress.failedIds.length > 0
+      ? progress.failedIds
+      : progress.produced === 0 ? stored.units.map((unit) => unit.id) : [];
+    if (failedIds.length === 0 && progress.doneIds.length >= stored.units.length) {
+      throw new AnalysisError("旧任务无法安全地只重试失败单元，请重新发起该任务。");
+    }
+    const retryIds = new Set(failedIds);
+    progress.doneIds = progress.doneIds.filter((id) => !retryIds.has(id));
+    progress.unitsDone = progress.doneIds.length;
+    progress.failedIds = [];
+    progress.errors = [];
+    progress.currentUnitId = null;
+    progress.currentLabel = null;
+    progressJson = JSON.stringify(progress);
+  }
   await prisma.analysisRun.update({
     where: { id: runId },
-    data: { status: "running", canceledAt: null, error: null },
+    data: { status: "running", canceledAt: null, error: null, progressJson },
   });
   void processRun(runId).catch(() => undefined);
   return getRunProgress(runId);

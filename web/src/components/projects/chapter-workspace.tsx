@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { notify } from "@/components/operation-prompt";
 import {
   AlertTriangle,
   BookOpen,
@@ -184,7 +184,7 @@ export function ChapterWorkspace({
       .catch((err: unknown) => {
         if (cancelled) return;
         setFailedIds((prev) => ({ ...prev, [selectedId]: true }));
-        toast.error(err instanceof Error ? err.message : "加载章节正文失败");
+        notify.error(err instanceof Error ? err.message : "加载章节正文失败");
       });
     return () => {
       cancelled = true;
@@ -228,7 +228,7 @@ export function ChapterWorkspace({
       setChapters(data.chapters);
     } catch (err) {
       setChapters(previous);
-      toast.error(err instanceof Error ? err.message : "排序失败");
+      notify.error(err instanceof Error ? err.message : "排序失败");
     }
   }
 
@@ -236,7 +236,7 @@ export function ChapterWorkspace({
     if (!renameTarget) return;
     const title = renameValue.trim();
     if (!title) {
-      toast.error("标题不能为空");
+      notify.error("标题不能为空");
       return;
     }
     setBusy(true);
@@ -253,9 +253,9 @@ export function ChapterWorkspace({
         prev.map((c) => (c.id === id ? { ...c, rawTitle: title } : c)),
       );
       setRenameTarget(null);
-      toast.success("标题已更新");
+      notify.success("标题已更新");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "重命名失败");
+      notify.error(err instanceof Error ? err.message : "重命名失败");
     } finally {
       setBusy(false);
     }
@@ -274,9 +274,9 @@ export function ChapterWorkspace({
       if (!res.ok || !data.chapters) throw new Error(data.error ?? "拆分失败");
       setChapters(data.chapters);
       setContents({});
-      toast.success("已按选区拆分");
+      notify.success("已按选区拆分");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "拆分失败");
+      notify.error(err instanceof Error ? err.message : "拆分失败");
     } finally {
       setBusy(false);
       setSplitOpen(false);
@@ -297,9 +297,9 @@ export function ChapterWorkspace({
       if (!res.ok || !data.chapters) throw new Error(data.error ?? "合并失败");
       setChapters(data.chapters);
       setContents({});
-      toast.success("已与下一章合并");
+      notify.success("已与下一章合并");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "合并失败");
+      notify.error(err instanceof Error ? err.message : "合并失败");
     } finally {
       setBusy(false);
       setMergeNext(null);
@@ -325,9 +325,9 @@ export function ChapterWorkspace({
       if (selectedId === deleteTarget.id) {
         setSelectedId(remaining[0]?.id ?? null);
       }
-      toast.success("章节已删除");
+      notify.success("章节已删除");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "删除失败");
+      notify.error(err instanceof Error ? err.message : "删除失败");
     } finally {
       setBusy(false);
       setDeleteTarget(null);
