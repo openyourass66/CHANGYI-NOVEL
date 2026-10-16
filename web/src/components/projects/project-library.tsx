@@ -189,13 +189,14 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((p) => (
             <li key={p.id}>
-              <Card className="h-full transition-colors duration-200 hover:border-primary/40">
+              <Card className="relative h-full transition-colors duration-200 hover:border-primary/40">
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-base">
                       <Link
                         href={`/projects/${p.id}`}
-                        className="rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`打开项目：${p.name}`}
+                        className="after:absolute after:inset-0 after:content-[''] rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {p.name}
                       </Link>
@@ -205,7 +206,7 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8"
+                          className="relative z-10 size-8"
                           aria-label={`${p.name} 的操作`}
                         >
                           <MoreHorizontal className="size-4" />
