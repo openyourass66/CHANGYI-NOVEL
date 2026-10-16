@@ -1,6 +1,6 @@
 # 当前虚拟机部署记录（2026-10-16，版本化 API 与设备推理支持）
 
-2026-10-16 已部署 `codex/client-server-split` 分支源码快照，基线提交 `02c25f5b3f7dea59137693e647bd552783dcc7e4`，包内含 231 个源码文件。源码包 SHA-256：`66979468044cf9b1e7297c3e7d41566e947b16a12251f1c25fc633cc1c41fe1e`。Compose 项目和原 PostgreSQL/应用数据卷保持不变；源码位于 `/root/novel-upload/novel-vm-2c985925/web`，应用镜像 ID `sha256:e817de9949cd50959ab4c4785e3badeca670b6e7a0929e0f76154790f9449e26`。
+2026-10-16 已部署 `codex/client-server-split` 分支源码快照，基线提交 `02c25f5b3f7dea59137693e647bd552783dcc7e4`，包内含 231 个源码文件。源码包 SHA-256：`66979468044cf9b1e7297c3e7d41566e947b16a12251f1c25fc633cc1c41fe1e`。Compose 项目和原 PostgreSQL/应用数据卷保持不变；源码位于 `/root/novel-upload/novel-vm-2c985925/web`，应用镜像 ID `sha256:235d9be32cf1776e24d3545dcf41d499a272ecd29b6ad127e76ac65261236752`。容器创建时间为 `2026-10-16T05:59:22Z`，启动时已应用 `20261016000000_device_inference` migration。
 
 部署前备份：`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261016T055422Z-H48o0n`，包含 `COMPLETE` 标记，数据库及文件归档 SHA-256 校验通过。
 
@@ -9,13 +9,13 @@
 - 浏览器：`http://192.168.150.102:3000/login`，仅供本人经 VMware 私有网络访问。
 - 当前运行源码：`/root/novel-upload/novel-vm-2c985925/web`。
 - Compose 项目：`novel-selftest-20261015`；数据库未发布宿主机端口。
-- 私有配置：当前运行目录的 `.env.vm`，权限 0600；包含 Redis 连接配置，不进入源码包。
-- 开发分支：`feat/vm-deployment`，未提交、未推送；main 保持原提交。
+- 私有配置：沿用旧目录 `/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm`，不进入新源码包。
+- 开发分支：`codex/client-server-split`；本次部署包基于 `02c25f5`，部署记录在后续提交中更新。
 
 ## 已完成的实际检查
 
 - 部署包 SHA-256 校验和 VM Node/SQLite 运行时预检通过；PostgreSQL 隔离验证及 SQLite → PostgreSQL 迁移验证通过。
-- 新应用和 PostgreSQL 容器健康；`http://192.168.150.102:3000/api/health` 与登录页均返回 HTTP 200，应用容器重启计数为 0。
+- 新应用和 PostgreSQL 容器健康；`http://192.168.150.102:3000/api/health` 与登录页均返回 HTTP 200，应用容器重启计数为 0。新镜像中的 PostgreSQL 账号/API 隔离与 SQLite → PostgreSQL 迁移验证均通过。
 
 - Debian Node 22.23.3 镜像构建、TypeScript 编译、Prisma PostgreSQL 引擎运行。
 - Redis 邮箱验证码版本已切换上线；应用与 PostgreSQL 容器 healthy，`/api/health` 返回 `{"status":"ok"}`，登录页可访问。
@@ -34,7 +34,7 @@
 
 本次切换前的部署备份：`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261015T115836Z-MocYsQ`。较早的部署/恢复演练备份：`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261015T113025Z-wXBTot`、`/root/novel-selftest-20261015-313fc7ac/backups/novel-20261015T102344Z-z66XVa`。均不包含用户原有小说。
 
-当前虚拟机承载的是整个 Next.js 测试应用（网页界面和 API），这是现有代码的临时联调部署，并非已完成的“云端服务 + 桌面客户端”拆分；桌面客户端和后续管理平台尚未实现。
+当前虚拟机承载 Next.js 网页和 `/api/v1` 服务；Windows 客户端已有自测安装包，固定连接此虚拟机地址。桌面客户端与真实服务的人工端到端体验仍待验收；后续管理平台尚未实现。
 
 ## 待完成
 
@@ -45,20 +45,25 @@
 ## 后续维护命令
 
 ```bash
-cd /root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web
-docker compose --env-file .env.vm -p novel-selftest-20261015 ps
-docker compose --env-file .env.vm -p novel-selftest-20261015 up -d --no-build --wait
+cd /root/novel-upload/novel-vm-2c985925/web
+env_file=/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm
+docker compose --env-file "$env_file" -p novel-selftest-20261015 ps
+docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-build --wait
 ```
 
 邮箱配置更新后重建应用容器，使环境变量生效：
 
 ```bash
-docker compose --env-file .env.vm -p novel-selftest-20261015 up -d --no-build --force-recreate app
+cd /root/novel-upload/novel-vm-2c985925/web
+env_file=/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm
+docker compose --env-file "$env_file" -p novel-selftest-20261015 up -d --no-build --force-recreate app
 ```
 
 备份时必须使用相同项目名：
 
 ```bash
+cd /root/novel-upload/novel-vm-2c985925/web
+env_file=/root/novel-selftest-20261015-313fc7ac/source-register-layout-fbea5de3/web/.env.vm
 COMPOSE_PROJECT_NAME=novel-selftest-20261015 bash deploy/backup.sh \
-  /root/novel-selftest-20261015-313fc7ac/backups .env.vm
+  /root/novel-selftest-20261015-313fc7ac/backups "$env_file"
 ```
