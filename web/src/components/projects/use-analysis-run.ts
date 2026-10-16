@@ -41,7 +41,7 @@ export function useAnalysisRun(options: {
     settledRef.current = onSettled;
   }, [onSettled]);
 
-  const runActive = run?.status === "running" || run?.status === "pending";
+  const runActive = Boolean(runId && !run) || run?.status === "running" || run?.status === "pending";
 
   useEffect(() => {
     if (!runId || !runActive) return;
