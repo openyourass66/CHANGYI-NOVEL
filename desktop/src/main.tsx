@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { createHashRouter, RouterProvider, Outlet, useLoaderData, useRevalidator, useRouteError, Link } from "react-router-dom";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, Square, X, FolderOpen, LoaderCircle } from "lucide-react";
+import { Minus, Square, X, FolderOpen, LoaderCircle, KeyRound } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ThemeProvider } from "@/components/theme-provider";
 import { OperationPromptHost, notify } from "@/components/operation-prompt";
@@ -11,6 +11,7 @@ import { ProjectLibrary } from "@/components/projects/project-library";
 import { ChapterWorkspace } from "@/components/projects/chapter-workspace";
 import { MemoryWorkbench } from "@/components/projects/memory-workbench";
 import { ProjectNav } from "@/components/projects/project-nav";
+import { ProfileManager } from "@/components/settings/profile-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatLabel } from "@/lib/domain";
@@ -79,8 +80,11 @@ function Memory() {
 }
 
 function Settings() {
+  const profiles = useLoaderData() as { profiles: import("@/lib/ai/profiles").ProfileView[]; encryptionReady: boolean; keyError?: string };
   const [directory, setDirectory] = useState("");
   const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState("");
+  const [restoring, setRestoring] = useState(false);
   const { revalidate } = useRevalidator();
   useEffect(() => { void invoke<{ dataDir: string }>("get_storage").then((value) => setDirectory(value.dataDir)).catch((error: unknown) => notify.error(String(error))); }, []);
   async function copy() {
@@ -91,8 +95,24 @@ function Settings() {
     } catch (error) { notify.error(String(error)); }
     finally { setBusy(false); }
   }
+  async function restoreKey() {
+    setRestoring(true);
+    try {
+      await api("/api/model-profiles/key", "POST", { key: key.trim() });
+      setKey("");
+      revalidate();
+      notify.success("已恢复工作区主密钥。");
+    } catch (error) { notify.error(String(error)); }
+    finally { setRestoring(false); }
+  }
   return <div className="mx-auto max-w-4xl space-y-6 px-4 py-8 lg:px-6">
     <h1 className="text-2xl font-semibold tracking-tight">设置</h1>
+    {!profiles.encryptionReady && <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><KeyRound className="size-4" />恢复工作区主密钥</CardTitle>
+      <CardDescription>{profiles.keyError ?? "此工作区需要原主密钥才能读取模型档案。"}</CardDescription></CardHeader>
+      <CardContent className="flex flex-col gap-3 sm:flex-row"><input type="password" value={key} onChange={(event) => setKey(event.target.value)}
+        autoComplete="off" aria-label="工作区主密钥" placeholder="原 .env 中的 64 位十六进制主密钥" className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm" />
+        <Button disabled={restoring || key.trim().length !== 64} onClick={() => void restoreKey()}>{restoring ? "验证中…" : "验证并恢复"}</Button></CardContent></Card>}
+    <ProfileManager profiles={profiles.profiles} encryptionReady={profiles.encryptionReady} />
     <Card><CardHeader><CardTitle className="text-base">数据保存位置</CardTitle><CardDescription>小说项目和原文保存在本机工作区中。</CardDescription></CardHeader>
       <CardContent className="space-y-4 text-sm">
         <p className="break-all text-muted-foreground">当前目录：{directory || "正在读取…"}</p>
@@ -134,7 +154,7 @@ const memoryLoader = async ({ params }: { params: Record<string, string | undefi
 const router = createHashRouter([{
   element: <Shell />, errorElement: <ErrorPage />, children: [
     { path: "/", loader: () => api("/api/projects"), element: <Library /> },
-    { path: "/settings", element: <Settings /> },
+    { path: "/settings", loader: () => api("/api/model-profiles"), element: <Settings /> },
     { path: "/projects/:id", loader: workspaceLoader, element: <Chapters /> },
     { path: "/projects/:id/memory", loader: memoryLoader, element: <Memory /> },
     { path: "/projects/:id/:section", loader: workspaceLoader, element: <MigrationPage /> },

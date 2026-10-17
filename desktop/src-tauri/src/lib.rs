@@ -1,13 +1,16 @@
 pub mod api;
 pub mod database;
 pub mod memory;
+pub mod profiles;
 mod restore;
+pub mod secrets;
 
 #[cfg(feature = "desktop")]
 mod desktop {
     use crate::{
         api::{self, ApiRequest, ApiResponse},
         database::{self, Result},
+        secrets,
     };
     use serde_json::{json, Value};
     use std::{
@@ -113,13 +116,7 @@ mod desktop {
                 if source.join("projects").exists() {
                     copy_tree(&source.join("projects"), &target.join("projects"))?;
                 }
-                if source.join(".changyi-storage.json").is_file() {
-                    fs::copy(
-                        source.join(".changyi-storage.json"),
-                        target.join(".changyi-storage.json"),
-                    )
-                    .map_err(|e| e.to_string())?;
-                }
+                secrets::prepare_copy(&source, &target, &db)?;
                 Ok(Workspace {
                     root: target.clone(),
                     db,

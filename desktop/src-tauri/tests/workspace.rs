@@ -198,6 +198,91 @@ fn memory_import_deduplicates_and_rolls_back_bad_file() {
 }
 
 #[test]
+fn model_profiles_encrypt_keys_and_preserve_defaults() {
+    let mut f = Fixture::new();
+    let empty = f
+        .request("GET", "/api/model-profiles", Value::Null)
+        .unwrap();
+    assert_eq!(empty["encryptionReady"], true);
+    let path = "/api/model-profiles";
+    let cloud=f.request("POST",path,json!({"name":"云端测试","provider":"openai-compatible","model":"test-model","baseUrl":"https://example.invalid/v1","apiKey":"synthetic-secret-1234","isLocal":false})).unwrap();
+    let cloud_id = cloud["profile"]["id"].as_str().unwrap().to_string();
+    assert_eq!(cloud["profile"]["isDefault"], true);
+    assert_eq!(cloud["profile"]["maskedKey"], "••••••1234");
+    assert!(!cloud.to_string().contains("synthetic-secret-1234"));
+    let encrypted = database::one(
+        &f.db,
+        "SELECT apiKeyEncrypted FROM ModelProfile WHERE id=?",
+        &[json!(cloud_id)],
+    )
+    .unwrap();
+    let stored = encrypted["apiKeyEncrypted"].as_str().unwrap();
+    assert!(!stored.contains("synthetic-secret-1234"));
+    let key = changyi_desktop::secrets::read_key(f.dir.path())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        changyi_desktop::secrets::decrypt(&key, stored).unwrap(),
+        "synthetic-secret-1234"
+    );
+    let local = f
+        .request(
+            "POST",
+            path,
+            json!({"name":"本地测试","provider":"ollama","model":"local","isLocal":true}),
+        )
+        .unwrap();
+    let local_id = local["profile"]["id"].as_str().unwrap().to_string();
+    assert_eq!(local["profile"]["hasKey"], false);
+    f.request("POST", &format!("{path}/{local_id}/default"), Value::Null)
+        .unwrap();
+    let listed = f.request("GET", path, Value::Null).unwrap();
+    assert_eq!(listed["profiles"][0]["id"], local_id);
+    assert_eq!(listed["profiles"][0]["isDefault"], true);
+    f.request(
+        "PATCH",
+        &format!("{path}/{cloud_id}"),
+        json!({"name":"已更新","model":"test-model-2","isLocal":false}),
+    )
+    .unwrap();
+    let updated = f.request("GET", path, Value::Null).unwrap();
+    assert_eq!(updated["profiles"][1]["maskedKey"], "••••••1234");
+    f.request("DELETE", &format!("{path}/{local_id}"), Value::Null)
+        .unwrap();
+    let final_list = f.request("GET", path, Value::Null).unwrap();
+    assert_eq!(final_list["profiles"][0]["id"], cloud_id);
+    assert_eq!(final_list["profiles"][0]["isDefault"], true);
+}
+
+#[test]
+fn legacy_node_ciphertext_and_env_key_survive_workspace_copy() {
+    let source = tempfile::tempdir().unwrap();
+    let folder = source.path().join("original");
+    let db = database::open(&folder).unwrap();
+    let ciphertext = r#"{"v":1,"iv":"CQkJCQkJCQkJCQkJ","tag":"IDhlamIPQGzTqSbAE7WaQQ==","ct":"VO6p4NuDtUxG9WzdSWxKTXE="}"#;
+    let expected_key = "0707070707070707070707070707070707070707070707070707070707070707";
+    database::execute(&db,"INSERT INTO ModelProfile(id,name,provider,model,apiKeyEncrypted,isLocal,isDefault,taskUsageJson,createdAt,updatedAt) VALUES(?,?,?,?,?,0,1,'{}',?,?)",
+        &[json!("legacy"),json!("旧档案"),json!("openai-compatible"),json!("old-model"),json!(ciphertext),json!(database::now()),json!(database::now())]).unwrap();
+    let target = source.path().join("copy");
+    std::fs::create_dir_all(&target).unwrap();
+    assert!(changyi_desktop::secrets::prepare_copy(&folder, &target, &db).is_err());
+    std::fs::write(
+        source.path().join(".env"),
+        format!("APP_ENCRYPTION_KEY=\"{expected_key}\"\n"),
+    )
+    .unwrap();
+    changyi_desktop::secrets::prepare_copy(&folder, &target, &db).unwrap();
+    let key = changyi_desktop::secrets::read_key(&target)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        changyi_desktop::secrets::decrypt(&key, ciphertext).unwrap(),
+        "sk-test-旧密钥"
+    );
+    assert!(changyi_desktop::secrets::restore_key(&target, &db, &"00".repeat(32)).is_err());
+}
+
+#[test]
 fn project_import_read_split_merge_use_utf16_offsets() {
     let mut f = Fixture::new();
     let p = f.create();

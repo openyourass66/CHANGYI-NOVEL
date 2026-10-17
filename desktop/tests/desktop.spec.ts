@@ -122,3 +122,23 @@ test("memory workbench saves revisions, knowledge, and imported notes", async ({
   await page.getByRole("tab", { name: /记忆条目/ }).click();
   await expect(page.getByRole("button", { name: /入夜不得出门/ })).toBeVisible();
 });
+
+test("settings creates and edits an encrypted model profile", async ({ page }) => {
+  await page.goto("/#/settings");
+  await expect(page.getByText("还没有模型档案")).toBeVisible();
+  await page.getByRole("button", { name: "新增档案" }).first().click();
+  await page.locator("#pf-name").fill("本地测试");
+  await page.locator("#pf-provider").click();
+  await page.getByRole("option", { name: /Ollama/ }).click();
+  await page.locator("#pf-model").fill("qwen-test");
+  await page.getByRole("button", { name: "创建档案" }).click();
+  await page.getByRole("button", { name: "知道了" }).click();
+  await expect(page.getByText("本地测试", { exact: true })).toBeVisible();
+  await expect(page.getByText("qwen-test")).toBeVisible();
+  await page.getByRole("button", { name: "本地测试 的操作" }).click();
+  await page.getByRole("menuitem", { name: "编辑" }).click();
+  await page.locator("#pf-name").fill("本地模型");
+  await page.getByRole("button", { name: "保存修改" }).click();
+  await page.getByRole("button", { name: "知道了" }).click();
+  await expect(page.getByText("本地模型", { exact: true })).toBeVisible();
+});
