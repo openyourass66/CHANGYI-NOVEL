@@ -53,6 +53,9 @@ pub fn dispatch(db: &mut Connection, root: &Path, req: &ApiRequest) -> Result<Va
     if let Some(result) = crate::profiles::route(db, root, &req.method, &parts, body) {
         return result;
     }
+    if let Some(result) = crate::proposals::route(db, &req.method, &parts, &req.path) {
+        return result;
+    }
     match (req.method.as_str(), parts.as_slice()) {
         ("POST", ["api", "projects", "restore"]) => crate::restore::restore(db, root, body),
         ("GET", ["api", "projects"]) => Ok(json!({ "projects": list_projects(db)? })),

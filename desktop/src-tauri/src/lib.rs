@@ -2,6 +2,7 @@ pub mod api;
 pub mod database;
 pub mod memory;
 pub mod profiles;
+pub mod proposals;
 mod restore;
 pub mod secrets;
 

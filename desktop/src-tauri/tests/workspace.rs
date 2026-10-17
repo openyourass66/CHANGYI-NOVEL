@@ -60,6 +60,95 @@ fn import_body(content: &str) -> Value {
     json!({"fileName":"小说.txt","format":"txt","encoding":"UTF-8","bytes":STANDARD.encode(content.as_bytes()),"warnings":[],"chapters":[{"volumeNumber":null,"volumeTitle":null,"rawTitle":"第一章 开始","normalizedIndex":1,"content":content,"startOffset":0,"endOffset":content.encode_utf16().count(),"confidence":1.0,"flags":[]}]})
 }
 
+fn insert_proposal(
+    f: &Fixture,
+    project: &str,
+    target: Option<&str>,
+    key: &str,
+    content: &str,
+) -> String {
+    let proposal_id = database::id();
+    f.db.execute(
+        "INSERT INTO MemoryProposal(id,projectId,kind,category,key,title,content,status,citationsJson,targetEntryId,state,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,?,?,?,'pending',?,?)",
+        rusqlite::params![proposal_id, project, if target.is_some() { "update" } else { "add" }, "character", key, "主角", content, "confirmed", "[]", target, database::now(), database::now()],
+    ).unwrap();
+    proposal_id
+}
+
+#[test]
+fn proposal_review_versions_memory_and_protects_human_edits() {
+    let mut f = Fixture::new();
+    let project = f.create();
+    let add = insert_proposal(&f, &project, None, "hero", "住在城里");
+    let listed = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/proposals?state=pending"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(listed["counts"]["pending"], 1);
+    assert_eq!(listed["proposals"][0]["title"], "主角");
+    let accepted = f
+        .request("POST", &format!("/api/proposals/{add}/accept"), Value::Null)
+        .unwrap();
+    assert_eq!(accepted["proposal"]["state"], "accepted");
+    let first = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/memory"),
+            Value::Null,
+        )
+        .unwrap();
+    let first_id = first["entries"][0]["id"].as_str().unwrap().to_string();
+    let update = insert_proposal(&f, &project, Some(&first_id), "hero", "搬到山里");
+    let result = f
+        .request(
+            "POST",
+            &format!("/api/proposals/{update}/accept"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(result["proposal"]["state"], "accepted");
+    let second = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/memory"),
+            Value::Null,
+        )
+        .unwrap();
+    let second_id = second["entries"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(second["entries"][0]["revision"], 2);
+    assert_eq!(second["entries"][0]["content"], "搬到山里");
+    let edited = json!({"category":"character","key":"hero","title":"主角","content":"人工改为住在海边","status":"confirmed","citations":[]});
+    f.request("PATCH", &format!("/api/memory/{second_id}"), edited)
+        .unwrap();
+    let conflict = insert_proposal(&f, &project, Some(&first_id), "hero", "模型改为住在森林");
+    let result = f
+        .request(
+            "POST",
+            &format!("/api/proposals/{conflict}/accept"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(result["proposal"]["state"], "conflicted");
+    assert!(result["message"].as_str().unwrap().contains("人工修改"));
+    f.request(
+        "POST",
+        &format!("/api/proposals/{conflict}/reject"),
+        Value::Null,
+    )
+    .unwrap();
+    let current = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/memory"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(current["entries"][0]["content"], "人工改为住在海边");
+}
+
 #[test]
 fn memory_versions_restore_conflicts_and_citation_scope() {
     let mut f = Fixture::new();
