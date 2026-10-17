@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>选择数据目录 · 长忆</title>
+  <style>
+    :root { color-scheme: light dark; font: 15px/1.65 'Segoe UI','Microsoft YaHei',sans-serif; background:#fbfaf7; color:#25231f; }
+    * { box-sizing:border-box; } body { margin:0; padding:50px 24px; } main { max-width:760px; margin:auto; }
+    .brand { color:#405992; font-weight:650; margin-bottom:28px; } h1 { font-size:28px; margin:0 0 8px; } p { color:#716b61; margin:0 0 24px; }
+    section { border:1px solid #e4e0d8; border-radius:14px; background:#fff; padding:24px; margin:24px 0; }
+    label,legend { font-weight:600; } label { display:block; margin:12px 0 6px; } .row { display:flex; gap:10px; flex-wrap:wrap; }
+    input[type=text],select { font:inherit; background:transparent; color:inherit; border:1px solid #d8d3ca; border-radius:8px; padding:10px 12px; min-width:180px; flex:1; width:100%; }
+    button { font:inherit; cursor:pointer; min-height:44px; padding:9px 16px; border-radius:8px; border:1px solid #d8d3ca; background:#fff; color:inherit; }
+    button.primary { background:#405992; color:white; border-color:#405992; } button:disabled { opacity:.5; cursor:wait; }
+    :focus-visible { outline:3px solid #7893d6; outline-offset:3px; } fieldset { border:0; padding:0; margin:22px 0; } .choice { font-weight:400; min-height:38px; display:flex; gap:8px; align-items:center; }
+    .hint { font-size:13px; margin:12px 0 0; } #error { color:#b32727; } #error:empty { display:none; }
+    @media(prefers-color-scheme:dark) { :root { background:#191918; color:#eeeae1; } section,button { background:#242422; border-color:#44413b; } p { color:#b4ada1; } input[type=text],select { border-color:#575148; } }
+  </style>
+</head>
+<body><main>
+  <div class="brand">长忆小说工作台</div>
+  <h1>选择数据保存位置</h1>
+  <p>项目、原文和模型配置将保存在你选择的文件夹。之后可以在「设置」中更改。</p>
+  <section>
+    <label for="directory">保存文件夹</label>
+    <div class="row"><input id="directory" type="text" readonly placeholder="请选择保存文件夹" /><button id="choose">选择文件夹</button></div>
+    <fieldset><legend>数据处理方式</legend>
+      <label class="choice"><input type="radio" name="action" value="import" />迁移旧项目数据</label>
+      <label class="choice"><input type="radio" name="action" value="open" checked />打开已有目录，或创建新工作区</label>
+    </fieldset>
+    <div id="source-fields" hidden><label for="source">原数据目录</label><div class="row"><select id="source"><option value="">请选择原数据目录</option></select><button id="browse">浏览原目录</button></div></div>
+    <p class="hint">迁移会复制数据库、原文及加密配置，并保留原目录。目标目录中如有工作区文件，将提示你选择其他目录。</p>
+  </section>
+  <p id="error" role="alert"></p>
+  <button id="start" class="primary">保存并进入工作区</button>
+  <p id="status" class="hint" role="status"></p>
+</main><script src="./setup.js"></script></body>
+</html>

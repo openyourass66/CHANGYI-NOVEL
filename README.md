@@ -43,7 +43,9 @@ pnpm dev
 
 ## Windows 桌面版
 
-桌面版使用 Electron 打开同一套 Next.js 单体应用，并在本机启动服务；无需安装 Node.js、浏览器或数据库。安装包在首次启动时初始化本地 SQLite 数据库。应用数据保存在当前 Windows 用户的 `%APPDATA%\Changyi\data`，加密密钥保存在 `%APPDATA%\Changyi\app-config.json`。重装应用不会删除用户数据；备份可通过 Web 工作台的项目导入/导出迁移。
+桌面版使用 Electron 打开同一套 Next.js 单体应用，并在本机启动服务；无需安装 Node.js、浏览器或数据库。首次启动时选择数据保存文件夹，也可以选择旧项目的数据目录迁移。设置页的「数据保存位置」支持迁移当前数据、打开已有目录和迁移旧项目数据。
+
+所选目录包含 `app.db`、`projects/` 和 `.changyi-storage.json`，分别保存数据库、原文等文件和模型密钥的加密配置。完整备份需要保留这三项；迁移时会复制数据并保留原目录，不覆盖目标目录已有的工作区。
 
 在 Windows 开发环境中，进入 `web/` 安装依赖后运行：
 
@@ -60,7 +62,7 @@ pnpm desktop:dist
 
 安装包输出到 `web/release-desktop/`。桌面壳仅负责启动和显示本地应用，业务页面、数据库和 API 仍由原有 Web 项目提供。
 
-免安装运行可打开 `web/release-desktop/win-unpacked/长忆.exe`。启动诊断保存在 `%APPDATA%\Changyi\logs\startup.log`；应用启动会自动迁移已有数据库，升级后继续使用原有用户数据。完整备份请保留 `%APPDATA%\Changyi` 中的 `data/` 和 `app-config.json`。
+免安装运行可打开 `web/release-desktop/win-unpacked/长忆.exe`。所选目录记录在 `%APPDATA%\Changyi\app-config.json`，启动诊断保存在 `%APPDATA%\Changyi\logs\startup.log`。旧 Web 项目的模型密钥迁移需要保留原 `web/.env`，迁移程序会在原数据目录的上一级读取它并校验加密配置。
 
 常用检查命令（在 `web/` 目录运行）：
 

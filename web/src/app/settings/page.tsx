@@ -3,6 +3,7 @@ import { AlertTriangle, FolderOpen, ShieldCheck } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProfileManager } from "@/components/settings/profile-manager";
+import { StorageSettings } from "@/components/settings/storage-settings";
 import { listProfiles } from "@/lib/ai/profiles";
 import { isEncryptionConfigured } from "@/lib/crypto";
 import { DATA_DIR } from "@/lib/storage";
@@ -36,6 +37,7 @@ export default async function SettingsPage() {
         </Alert>
       )}
 
+      <StorageSettings />
       <ProfileManager profiles={profiles} encryptionReady={encryptionReady} />
 
       <Card>

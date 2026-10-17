@@ -4,6 +4,10 @@ directories:
   output: ../release-desktop
 files:
   - main.cjs
+  - preload.cjs
+  - storage-manager.cjs
+  - setup.html
+  - setup.js
   - splash.html
   - app-icon-256.png
   - package.json
