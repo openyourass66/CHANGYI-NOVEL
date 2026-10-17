@@ -64,10 +64,7 @@ if (!app.requestSingleInstanceLock()) {
   const serverEntry = app.isPackaged
     ? path.join(runtimeRoot, "server.js")
     : path.join(webRoot, "node_modules", "next", "dist", "bin", "next");
-  const storage = new StorageManager(app.getPath("userData"), [
-    path.resolve(process.cwd(), "web/data"), path.resolve(process.cwd(), "data"),
-    path.resolve(appResources, "../../../data"),
-  ]);
+  const storage = new StorageManager(app.getPath("userData"));
 
   function waitForPort() {
     return new Promise((resolve, reject) => {
@@ -256,13 +253,12 @@ if (!app.requestSingleInstanceLock()) {
     });
     handle("storage:info", async () => {
       const info = await storage.info();
-      for (const source of info.sources) approvedDirectories.add(path.resolve(source.directory));
       approvedDirectories.add(path.resolve(info.dataDir));
       return { ...info, supported: app.isPackaged };
     });
-    handle("storage:choose", async (purpose) => {
+    handle("storage:choose", async () => {
       const result = await dialog.showOpenDialog(mainWindow, {
-        title: purpose === "source" ? "选择原数据目录（包含 app.db 和 projects）" : "选择数据保存目录",
+        title: "选择数据保存文件夹",
         properties: ["openDirectory", "createDirectory"],
         defaultPath: (await storage.info()).dataDir,
       });
@@ -278,15 +274,11 @@ if (!app.requestSingleInstanceLock()) {
       if (!app.isPackaged) throw new Error("请在打包后的桌面版中更改数据目录。");
       if (changingStorage) throw new Error("正在更改目录，请稍候。");
       if (!request || typeof request.directory !== "string" || !approvedDirectories.has(path.resolve(request.directory))) throw new Error("请先选择保存文件夹。");
-      if (!["open", "move", "import"].includes(request.action)) throw new Error("目录操作无效。");
       const previous = await storage.config();
-      const previousDir = previous.dataDir ?? path.join(app.getPath("userData"), "data");
-      const source = request.action === "move" ? previousDir : request.action === "import" ? request.sourceDirectory : undefined;
-      if (request.action === "import" && (typeof source !== "string" || !approvedDirectories.has(path.resolve(source)))) throw new Error("请先选择原数据目录。");
       changingStorage = true;
       try {
         await stopServer();
-        const config = await storage.prepare(request.directory, source);
+        const config = await storage.prepareDestination(request.directory);
         await startWorkspace(config);
         await storage.save(config);
         return { dataDir: config.dataDir };

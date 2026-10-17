@@ -96,10 +96,9 @@ function nested(a, b) {
 }
 
 class StorageManager {
-  constructor(userDirectory, legacyDirectories = []) {
+  constructor(userDirectory) {
     this.userDirectory = userDirectory;
     this.configFile = path.join(userDirectory, "app-config.json");
-    this.legacyDirectories = legacyDirectories;
   }
   async config() {
     const config = await readJson(this.configFile) ?? {};
@@ -110,16 +109,23 @@ class StorageManager {
   async info() {
     const config = await this.config();
     const current = config.dataDir ?? path.join(this.userDirectory, "data");
-    const sources = [];
-    for (const candidate of new Set([...this.legacyDirectories, path.join(this.userDirectory, "data")])) {
-      try {
-        const directory = await realpath(candidate);
-        if (config.dataDir && directory.toLowerCase() === path.resolve(config.dataDir).toLowerCase()) continue;
-        const summary = await inspect(directory);
-        if (summary && (summary.projectCount || summary.profileCount)) sources.push(summary);
-      } catch { /* Missing or unrelated databases are not offered as old workspaces. */ }
+    return { dataDir: current, needsSetup: !config.dataDir };
+  }
+  async prepareDestination(directory) {
+    if (!path.isAbsolute(directory)) throw new Error("请先选择数据保存文件夹。");
+    // An existing workspace keeps its own projects and encryption configuration.
+    if (await inspect(directory)) return this.prepare(directory);
+    let entries;
+    try { entries = await readdir(directory); }
+    catch (error) { if (error.code !== "ENOENT") throw error; entries = []; }
+    if (entries.some((name) => ["app.db", "app.db-wal", "app.db-shm", "projects", STORAGE_FILE].includes(name))) {
+      throw new Error("所选文件夹包含不完整的工作区数据，请选择其他文件夹。");
     }
-    return { dataDir: current, needsSetup: !config.dataDir, sources };
+    const previous = await this.config();
+    const current = previous.dataDir ?? path.join(this.userDirectory, "data");
+    if (await inspect(current)) return this.prepare(directory, current);
+    if (previous.dataDir) throw new Error("当前数据目录不可用，请选择已有工作区文件夹，或恢复原目录后重试。");
+    return this.prepare(directory);
   }
   async prepare(directory, sourceDirectory) {
     if (!path.isAbsolute(directory)) throw new Error("请选择完整的数据目录路径。");

@@ -29,7 +29,7 @@ async function fixture(t) {
   db.prepare("INSERT INTO ModelProfile VALUES(?)").run(encrypted);
   await writeFile(path.join(source, "projects", "book", "sources", "原文.txt"), "需要保留的小说原文");
   t.after(async () => { db.close(); await rm(root, { recursive: true, force: true }); });
-  return { root, source, key, encrypted, db, storage: new StorageManager(path.join(root, "profile"), [source]) };
+  return { root, source, key, encrypted, db, storage: new StorageManager(path.join(root, "profile")) };
 }
 
 test("迁移包含 WAL 的数据库、中文原文及模型加密配置，并保留源数据和目标无关文件", async (t) => {
@@ -93,4 +93,73 @@ test("用户配置写入中断时可从上一份有效配置恢复数据位置�
   await writeFile(`${f.storage.configFile}.previous`, await readFile(f.storage.configFile));
   await writeFile(f.storage.configFile, '{"dataDir":');
   assert.deepEqual(await f.storage.config(), config);
+});
+
+test("首次只选择空目录时创建新工作区，不自动导入其他目录的数据", async (t) => {
+  const f = await fixture(t);
+  const target = path.join(f.root, "new-workspace");
+  const config = await f.storage.prepareDestination(target);
+  assert.equal(config.dataDir, target);
+  assert.match(config.encryptionKey, /^[a-f\d]{64}$/);
+  assert.deepEqual(await readdir(target), [".changyi-storage.json"]);
+  assert.equal((await f.storage.info()).needsSetup, true);
+  await f.storage.save(config);
+  assert.equal((await f.storage.info()).needsSetup, false);
+  assert.equal(f.db.prepare("SELECT count(*) AS n FROM NovelProject").get().n, 1);
+});
+
+test("更换到空目录时自动复制当前项目、原文和密钥，保留源数据与目标无关文件", async (t) => {
+  const f = await fixture(t);
+  await f.storage.save(await f.storage.prepareDestination(f.source));
+  const target = path.join(f.root, "new-location");
+  await mkdir(target);
+  await writeFile(path.join(target, "其他文件.txt"), "keep");
+  const config = await f.storage.prepareDestination(target);
+  assert.equal(config.encryptionKey, f.key);
+  assert.equal((await inspect(target)).projectCount, 1);
+  assert.equal(await readFile(path.join(target, "projects/book/sources/原文.txt"), "utf8"), "需要保留的小说原文");
+  assert.equal(await readFile(path.join(target, "其他文件.txt"), "utf8"), "keep");
+  assert.equal(f.db.prepare("SELECT apiKeyEncrypted FROM ModelProfile").get().apiKeyEncrypted, f.encrypted);
+  assert.equal((await f.storage.config()).dataDir, f.source);
+  await f.storage.save(config);
+  assert.equal((await f.storage.info()).dataDir, target);
+});
+
+test("选择已有工作区时使用目标自己的项目和密钥，不用当前数据覆盖它", async (t) => {
+  const f = await fixture(t);
+  const other = await fixture(t);
+  other.db.exec("UPDATE NovelProject SET name = '目标小说'");
+  await f.storage.save(await f.storage.prepareDestination(f.source));
+  const config = await f.storage.prepareDestination(other.source);
+  assert.equal(config.dataDir, other.source);
+  assert.equal(config.encryptionKey, other.key);
+  assert.equal(other.db.prepare("SELECT name FROM NovelProject").get().name, "目标小说");
+  assert.equal(other.db.prepare("SELECT apiKeyEncrypted FROM ModelProfile").get().apiKeyEncrypted, other.encrypted);
+  assert.equal(f.db.prepare("SELECT name FROM NovelProject").get().name, "原有小说");
+  const reopened = await f.storage.prepareDestination(f.source);
+  assert.equal(reopened.encryptionKey, f.key);
+});
+
+test("拒绝相对目录、不完整工作区和嵌套迁移，保持当前配置及文件不变", async (t) => {
+  const f = await fixture(t);
+  const previous = await f.storage.prepareDestination(f.source);
+  await f.storage.save(previous);
+  await assert.rejects(f.storage.prepareDestination("relative-path"), /先选择/);
+  const target = path.join(f.root, "partial");
+  await mkdir(path.join(target, "projects"), { recursive: true });
+  await writeFile(path.join(target, "projects", "原有文件.txt"), "keep");
+  await assert.rejects(f.storage.prepareDestination(target), /不完整的工作区/);
+  assert.equal(await readFile(path.join(target, "projects", "原有文件.txt"), "utf8"), "keep");
+  await assert.rejects(f.storage.prepareDestination(path.join(f.source, "nested")), /不能互相包含/);
+  assert.deepEqual(await f.storage.config(), previous);
+  assert.equal(f.db.prepare("SELECT count(*) AS n FROM NovelProject").get().n, 1);
+});
+
+test("当前配置的目录丢失时不创建空工作区，也不丢弃原配置", async (t) => {
+  const f = await fixture(t);
+  const previous = { dataDir: path.join(f.root, "missing"), encryptionKey: f.key };
+  await f.storage.save(previous);
+  const target = path.join(f.root, "target");
+  await assert.rejects(f.storage.prepareDestination(target), /当前数据目录不可用/);
+  assert.deepEqual(await f.storage.config(), previous);
 });
