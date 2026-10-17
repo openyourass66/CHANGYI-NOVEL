@@ -61,6 +61,143 @@ fn import_body(content: &str) -> Value {
 }
 
 #[test]
+fn memory_versions_restore_conflicts_and_citation_scope() {
+    let mut f = Fixture::new();
+    let project = f.create();
+    let other = f.create();
+    f.import(&project, "甲😀乙丙");
+    f.import(&other, "异项目正文");
+    let chapter = f.chapters(&project)[0]["id"].as_str().unwrap().to_string();
+    let foreign = f.chapters(&other)[0]["id"].as_str().unwrap().to_string();
+    let path = format!("/api/projects/{project}/memory");
+    let mut body = json!({"category":"character","key":"hero","title":"主角","content":"住在城里","status":"confirmed","citations":[{"chapterId":chapter,"startOffset":1,"endOffset":3,"excerpt":"😀"}]});
+    let created = f.request("POST", &path, body.clone()).unwrap();
+    let first_id = created["entry"]["id"].as_str().unwrap().to_string();
+    assert_eq!(created["entry"]["citations"][0]["chapterIndex"], 1);
+    body["content"] = json!("搬到山里");
+    let second = f
+        .request("PATCH", &format!("/api/memory/{first_id}"), body.clone())
+        .unwrap();
+    let second_id = second["entry"]["id"].as_str().unwrap().to_string();
+    assert_eq!(second["entry"]["revision"], 2);
+    assert!(second["entry"]["isUserEdited"].as_bool().unwrap());
+    let history = f
+        .request(
+            "GET",
+            &format!("/api/memory/{first_id}/history"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(history["history"].as_array().unwrap().len(), 2);
+    assert_eq!(history["history"][0]["id"], second_id);
+    assert_eq!(history["history"][1]["content"], "住在城里");
+    let restored = f
+        .request(
+            "POST",
+            &format!("/api/memory/{first_id}/history"),
+            json!({"revision":1}),
+        )
+        .unwrap();
+    assert_eq!(restored["entry"]["revision"], 3);
+    assert_eq!(restored["entry"]["content"], "住在城里");
+    assert_eq!(
+        f.request("GET", &path, Value::Null).unwrap()["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    f.request("POST", &path, body.clone()).unwrap();
+    let list = f.request("GET", &path, Value::Null).unwrap();
+    assert_eq!(list["conflicts"].as_array().unwrap().len(), 1);
+    assert_eq!(list["counts"]["character"], 2);
+    assert_eq!(
+        f.request("GET", &format!("{path}?q=%E6%90%AC%E5%88%B0"), Value::Null)
+            .unwrap()["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    body["citations"][0]["chapterId"] = json!(foreign);
+    assert!(f
+        .request("PATCH", &format!("/api/memory/{second_id}"), body)
+        .is_err());
+    let export = f
+        .request("GET", &format!("{path}/export"), Value::Null)
+        .unwrap();
+    assert!(export["text"].as_str().unwrap().contains("第 1 章"));
+    f.request("DELETE", &format!("/api/memory/{first_id}"), Value::Null)
+        .unwrap();
+    assert_eq!(
+        f.request("GET", &path, Value::Null).unwrap()["entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn memory_import_deduplicates_and_rolls_back_bad_file() {
+    let mut f = Fixture::new();
+    let project = f.create();
+    let path = format!("/api/projects/{project}/memory/import");
+    let row = json!({"category":"story-bible","key":"setting:city","title":"城池","content":"北方城池","status":"confirmed","citations":[]});
+    let file = json!({"fileName":"设定集.md","kind":"story-bible","warnings":[],"entries":[row],"knowledge":[{"characterName":"甲","infoItem":"知道城门","relation":"known"}]});
+    let first = f
+        .request("POST", &path, json!({"files":[file.clone()]}))
+        .unwrap();
+    assert_eq!(first["summary"]["totals"]["imported"], 1);
+    assert_eq!(first["summary"]["totals"]["knowledge"], 1);
+    let again = f.request("POST", &path, json!({"files":[file]})).unwrap();
+    assert_eq!(again["summary"]["totals"]["skipped"], 1);
+    assert_eq!(again["summary"]["totals"]["knowledge"], 0);
+    let bad = json!({"fileName":"坏文件.md","kind":"story-bible","warnings":[],"entries":[
+        {"category":"story-bible","key":"valid","content":"有效","status":"confirmed","citations":[]},
+        {"category":"story-bible","key":"bad","content":"无效状态","status":"open","citations":[]}
+    ],"knowledge":[]});
+    let outcome = f.request("POST", &path, json!({"files":[bad]})).unwrap();
+    assert!(outcome["summary"]["files"][0]["error"].as_str().is_some());
+    let list = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/memory"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(list["entries"].as_array().unwrap().len(), 1);
+    let knowledge = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/knowledge"),
+            Value::Null,
+        )
+        .unwrap();
+    let item_id = knowledge["knowledge"][0]["id"].as_str().unwrap();
+    let changed = f
+        .request(
+            "PATCH",
+            &format!("/api/knowledge/{item_id}"),
+            json!({"characterName":"甲","infoItem":"误信城门关闭","relation":"misbelieved"}),
+        )
+        .unwrap();
+    assert_eq!(changed["item"]["relation"], "misbelieved");
+    f.request("DELETE", &format!("/api/knowledge/{item_id}"), Value::Null)
+        .unwrap();
+    assert!(f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/knowledge"),
+            Value::Null
+        )
+        .unwrap()["knowledge"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
 fn project_import_read_split_merge_use_utf16_offsets() {
     let mut f = Fixture::new();
     let p = f.create();

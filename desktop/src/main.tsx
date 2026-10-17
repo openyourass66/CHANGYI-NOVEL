@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { OperationPromptHost, notify } from "@/components/operation-prompt";
 import { ProjectLibrary } from "@/components/projects/project-library";
 import { ChapterWorkspace } from "@/components/projects/chapter-workspace";
+import { MemoryWorkbench } from "@/components/projects/memory-workbench";
 import { ProjectNav } from "@/components/projects/project-nav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,6 +65,19 @@ function Chapters() {
   return <ChapterWorkspace key={`${data.project.id}:${data.source?.importedAt ?? "empty"}`} projectId={data.project.id} projectName={data.project.name} genre={data.project.genre} source={source} initialChapters={data.chapters} />;
 }
 
+type MemoryData = Workspace & {
+  memory: { entries: import("@/lib/memory-view").MemoryEntryView[]; counts: Record<string, number>; conflicts: import("@/lib/memory-view").KeyConflict[] };
+  knowledge: import("@/lib/memory-view").KnowledgeView[];
+};
+
+function Memory() {
+  const data = useLoaderData() as MemoryData;
+  return <MemoryWorkbench key={data.project.id} projectId={data.project.id} projectName={data.project.name}
+    initialEntries={data.memory.entries} initialCounts={data.memory.counts} initialConflicts={data.memory.conflicts} initialKnowledge={data.knowledge}
+    chapters={data.chapters.map((chapter, i) => ({ id: chapter.id, index: i + 1, title: chapter.rawTitle }))}
+    focusEntryId={new URLSearchParams(location.hash.split("?")[1] ?? "").get("entry")} />;
+}
+
 function Settings() {
   const [directory, setDirectory] = useState("");
   const [busy, setBusy] = useState(false);
@@ -109,11 +123,20 @@ function ErrorPage() {
 }
 
 const workspaceLoader = ({ params }: { params: Record<string, string | undefined> }) => api<Workspace>(`/api/projects/${params.id}/workspace`);
+const memoryLoader = async ({ params }: { params: Record<string, string | undefined> }): Promise<MemoryData> => {
+  const [workspace, memory, knowledge] = await Promise.all([
+    workspaceLoader({ params }),
+    api<MemoryData["memory"]>(`/api/projects/${params.id}/memory`),
+    api<{ knowledge: MemoryData["knowledge"] }>(`/api/projects/${params.id}/knowledge`),
+  ]);
+  return { ...workspace, memory, knowledge: knowledge.knowledge };
+};
 const router = createHashRouter([{
   element: <Shell />, errorElement: <ErrorPage />, children: [
     { path: "/", loader: () => api("/api/projects"), element: <Library /> },
     { path: "/settings", element: <Settings /> },
     { path: "/projects/:id", loader: workspaceLoader, element: <Chapters /> },
+    { path: "/projects/:id/memory", loader: memoryLoader, element: <Memory /> },
     { path: "/projects/:id/:section", loader: workspaceLoader, element: <MigrationPage /> },
   ],
 }]);

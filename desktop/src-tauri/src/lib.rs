@@ -1,5 +1,6 @@
 pub mod api;
 pub mod database;
+pub mod memory;
 mod restore;
 
 #[cfg(feature = "desktop")]
@@ -154,7 +155,7 @@ mod desktop {
         project_id: String,
         format: String,
     ) -> Result<bool> {
-        if !["json", "txt"].contains(&format.as_str()) {
+        if !["json", "txt", "memory-md"].contains(&format.as_str()) {
             return Err("不支持的导出格式。".into());
         }
         let shared = state.inner().clone();
@@ -167,7 +168,11 @@ mod desktop {
                     &root,
                     &ApiRequest {
                         method: "GET".into(),
-                        path: format!("/api/projects/{project_id}/export?format={format}"),
+                        path: if format == "memory-md" {
+                            format!("/api/projects/{project_id}/memory/export")
+                        } else {
+                            format!("/api/projects/{project_id}/export?format={format}")
+                        },
                         body: Value::Null,
                     },
                 )?

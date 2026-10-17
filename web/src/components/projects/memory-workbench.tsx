@@ -302,7 +302,7 @@ export function MemoryWorkbench({
         </TabsContent>
 
         <TabsContent value="knowledge">
-          <KnowledgePanel projectId={projectId} initialKnowledge={initialKnowledge} />
+          <KnowledgePanel key={initialKnowledge.map((item) => `${item.id}:${item.relation}:${item.infoItem}`).join(";")} projectId={projectId} initialKnowledge={initialKnowledge} />
         </TabsContent>
 
         <TabsContent value="conflicts" className="space-y-3">

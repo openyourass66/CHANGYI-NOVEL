@@ -1,6 +1,6 @@
 [package]
 name = "changyi-desktop"
-version = "0.2.0-alpha.1"
+version = "0.2.0-alpha.2"
 description = "长忆本地小说工作台"
 edition = "2021"
 default-run = "changyi"
@@ -32,6 +32,7 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sha2 = "0.10"
 base64 = "0.22"
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"

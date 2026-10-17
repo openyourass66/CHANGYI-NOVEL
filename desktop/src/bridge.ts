@@ -46,12 +46,21 @@ export function installBridge() {
     try {
       let body: unknown = null;
       if (init?.body instanceof FormData) {
-        const file = init.body.get("file");
-        if (!(file instanceof File)) throw new Error("请选择文件。");
-        if (file.size > 50 * 1024 * 1024) throw new Error("单文件不得超过 50MB。");
-        if (url.pathname.endsWith("/import")) {
-          body = { ...await parseFile(file), bytes: encodeBytes(new Uint8Array(await file.arrayBuffer())) };
-        } else { body = JSON.parse(await file.text()); }
+        if (url.pathname.endsWith("/memory/import")) {
+          const files = init.body.getAll("files");
+          if (!files.every((file): file is File => file instanceof File)) throw new Error("请选择记忆文件。");
+          const { parseMemoryFiles } = await import("./memory-import");
+          const match = /^\/api\/projects\/([^/]+)\/memory\/import$/.exec(url.pathname);
+          if (!match) throw new Error("导入路径无效。");
+          body = await parseMemoryFiles(match[1], files);
+        } else {
+          const file = init.body.get("file");
+          if (!(file instanceof File)) throw new Error("请选择文件。");
+          if (file.size > 50 * 1024 * 1024) throw new Error("单文件不得超过 50MB。");
+          if (url.pathname.endsWith("/import")) {
+            body = { ...await parseFile(file), bytes: encodeBytes(new Uint8Array(await file.arrayBuffer())) };
+          } else { body = JSON.parse(await file.text()); }
+        }
       } else if (typeof init?.body === "string") { body = JSON.parse(init.body); }
       const value = await api(url.pathname + url.search, init?.method ?? "GET", body);
       return Response.json(value);
@@ -63,10 +72,10 @@ export function installBridge() {
     const anchor = event.target instanceof Element ? event.target.closest("a") : null;
     if (!anchor) return;
     const url = new URL(anchor.href);
-    const match = /^\/api\/projects\/([^/]+)\/export$/.exec(url.pathname);
+    const match = /^\/api\/projects\/([^/]+)\/(export|memory\/export)$/.exec(url.pathname);
     if (url.origin !== location.origin || !match) return;
     event.preventDefault();
-    void invoke("save_export", { projectId: match[1], format: url.searchParams.get("format") ?? "json" }).catch((error: unknown) => {
+    void invoke("save_export", { projectId: match[1], format: match[2] === "memory/export" ? "memory-md" : url.searchParams.get("format") ?? "json" }).catch((error: unknown) => {
       notify.error(String(error));
     });
   });

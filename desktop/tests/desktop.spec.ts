@@ -87,3 +87,38 @@ test("PDF.js loads its Worker and font assets in the production frontend", async
   await page.getByRole("button", { name: "知道了", exact: true }).click();
   await expect(page.locator(".reading-surface")).toContainText("PDF import compatibility test");
 });
+
+test("memory workbench saves revisions, knowledge, and imported notes", async ({ page }) => {
+  await createProject(page, "记忆验收小说");
+  await page.getByRole("link", { name: "记忆工作台" }).click();
+  await expect(page.getByRole("heading", { name: "记忆验收小说" })).toBeVisible();
+  await page.getByRole("button", { name: "新建条目" }).first().click();
+  await page.locator("#mem-title").fill("旧城");
+  await page.locator("#mem-key").fill("city");
+  await page.locator("#mem-content").fill("城门朝东");
+  await page.getByRole("button", { name: "创建", exact: true }).click();
+  await page.getByRole("button", { name: "知道了" }).click();
+  await expect(page.getByText("城门朝东")).toBeVisible();
+  await page.getByRole("button", { name: /旧城.*城门朝东/ }).click();
+  await page.locator("#mem-content").fill("城门朝西");
+  await page.getByRole("button", { name: "保存新版本" }).click();
+  await page.getByRole("button", { name: "知道了" }).click();
+  await page.getByRole("button", { name: /旧城.*城门朝西/ }).click();
+  await page.getByRole("button", { name: "查看历史" }).click();
+  await expect(page.getByText("城门朝东")).toBeVisible();
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("tab", { name: /人物认知/ }).click();
+  await page.getByLabel("人物", { exact: true }).fill("林舟");
+  await page.getByLabel("信息条目").fill("知道旧城入口");
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await page.getByRole("button", { name: "知道了" }).click();
+  await expect(page.getByText("知道旧城入口")).toBeVisible();
+  await page.getByRole("button", { name: "导入记忆文档" }).click();
+  await page.getByRole("dialog").locator('input[type="file"]').setInputFiles({ name: "设定集.md", mimeType: "text/markdown", buffer: Buffer.from("# 设定集\n## 禁忌\n- 入夜不得出门\n") });
+  await page.getByRole("button", { name: "导入 1 个文件" }).click();
+  await page.getByRole("button", { name: "知道了" }).click();
+  await expect(page.getByText(/导入 1 条 · 跳过 0 条/)).toBeVisible();
+  await page.getByRole("button", { name: "完成" }).click();
+  await page.getByRole("tab", { name: /记忆条目/ }).click();
+  await expect(page.getByRole("button", { name: /入夜不得出门/ })).toBeVisible();
+});

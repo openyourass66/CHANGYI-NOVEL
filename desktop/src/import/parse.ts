@@ -9,7 +9,7 @@ function decode(bytes: Uint8Array): { text: string; encoding: string } {
   return { text: "", encoding: "" };
 }
 
-async function decodeText(bytes: Uint8Array) {
+export async function decodeText(bytes: Uint8Array) {
   const utf8 = decode(bytes);
   if (utf8.encoding) return utf8;
   const { default: detector } = await import("jschardet");
