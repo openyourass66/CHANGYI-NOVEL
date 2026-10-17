@@ -68,6 +68,8 @@ pnpm desktop:dist
 
 Windows 标题栏与应用导航合并显示，仅保留一组图标和名称；顶部空白区域支持拖动、双击最大化，右侧保留系统窗口按钮。
 
+从项目页面进入设置后，点击「返回项目」可回到原项目及原功能页面，刷新设置页后仍保留返回位置。直接从项目库进入设置时，仍可返回项目库。点击左上角的「长忆」可随时打开项目库。
+
 免安装运行可打开 `web/release-desktop/win-unpacked/长忆.exe`。所选目录记录在 `%APPDATA%\Changyi\app-config.json`，启动诊断保存在 `%APPDATA%\Changyi\logs\startup.log`。旧 Web 项目的模型密钥迁移需要保留原 `web/.env`，迁移程序会在原数据目录的上一级读取它并校验加密配置。
 
 常用检查命令（在 `web/` 目录运行）：
