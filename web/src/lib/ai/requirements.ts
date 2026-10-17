@@ -5,7 +5,7 @@ import type { TaskRequirement } from "@/lib/ai/tasks/registry";
 
 export const REQUIREMENT_HINT: Record<TaskRequirement, string> = {
   memory: "需先完成「逐章抽取」，产出记忆条目",
-  plan: "需先生成一个续写方向",
+  plan: "需先添加或生成一个续写方向",
   outline: "该方向还没有章纲，需先「生成章纲」",
   drafts: "该方向还没有草稿，需先「生成草稿」",
 };

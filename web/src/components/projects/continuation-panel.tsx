@@ -60,6 +60,7 @@ import { stageMetaOf, stageStatusOf } from "@/lib/ai/progress-view";
 import { ProjectNav } from "@/components/projects/project-nav";
 import { CloudAuthorizeDialog } from "@/components/projects/cloud-authorize-dialog";
 import { DraftEditor } from "@/components/projects/draft-editor";
+import { DirectionEditor } from "@/components/projects/direction-editor";
 import { StageRail, type Stage } from "@/components/projects/stage-rail";
 import { RunStatusPanel } from "@/components/projects/run-status";
 import { useAnalysisRun } from "@/components/projects/use-analysis-run";
@@ -117,6 +118,7 @@ export function ContinuationPanel({
   const [actingPlan, setActingPlan] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ContinuationPlanView | null>(null);
+  const [directionEditor, setDirectionEditor] = useState<{ plan: ContinuationPlanView | null } | null>(null);
 
   const [drafts, setDrafts] = useState<DraftChapterView[]>([]);
   const [issues, setIssues] = useState<ContinuityIssueView[]>([]);
@@ -244,11 +246,12 @@ export function ContinuationPanel({
             : null;
     return {
       key: t.type,
-      label: t.label,
-      description: t.description,
-      status: stageStatusOf(stageRun),
-      meta: stageMetaOf(stageRun) ?? fallbackMeta,
-      hint: met || !t.requirement ? null : REQUIREMENT_HINT[t.requirement],
+      label: t.type === "direction" ? "确定续写方向" : t.label,
+      description: t.type === "direction" ? "自己填写构思，或让 AI 生成候选方向。" : t.description,
+      status: t.type === "direction" && plans.length > 0 && !["running", "pending"].includes(stageRun?.status ?? "")
+        ? "done" : stageStatusOf(stageRun),
+      meta: t.type === "direction" ? `共 ${plans.length} 个方向` : stageMetaOf(stageRun) ?? fallbackMeta,
+      hint: t.type === "direction" ? null : met || !t.requirement ? null : REQUIREMENT_HINT[t.requirement],
     };
   });
 
@@ -261,7 +264,7 @@ export function ContinuationPanel({
 
   async function start() {
     if (needsPlan && !targetPlan) {
-      notify.error("请先生成一个续写方向。");
+      notify.error("请先添加或生成一个续写方向。");
       return;
     }
     await startRun({
@@ -436,7 +439,7 @@ export function ContinuationPanel({
   const blocked =
     showOutlineCount && targetPlan && targetPlan.draftCount > 0
       ? `当前方向已有 ${targetPlan.draftCount} 章草稿。为避免旧草稿错配新章纲，请先导出需要保留的草稿并删除该方向的现有草稿。`
-      : activeStage?.hint ?? null;
+      : needsPlan && !hasMemory ? REQUIREMENT_HINT.memory : activeStage?.hint ?? null;
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 lg:px-6">
@@ -444,7 +447,7 @@ export function ContinuationPanel({
       <header className="space-y-1.5">
         <h1 className="text-2xl font-semibold tracking-tight">{projectName}</h1>
         <p className="text-sm text-muted-foreground">
-          在已有记忆之上按步骤续写：生成方向 → 排章纲 → 写草稿 → 核对并提取记忆变化。
+          确定续写方向 → 排章纲 → 写草稿 → 核对并提取记忆变化。方向可以自己填写，也可以由 AI 生成。
         </p>
       </header>
 
@@ -459,6 +462,18 @@ export function ContinuationPanel({
           />
 
           <Separator />
+
+          {taskType === "direction" && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">已经有续写构思？</p>
+                <p className="text-xs text-muted-foreground">直接填写并保存，无需先生成候选方向。</p>
+              </div>
+              <Button variant="outline" disabled={runActive} onClick={() => setDirectionEditor({ plan: null })}>
+                <Plus className="size-4" />自定义方向
+              </Button>
+            </div>
+          )}
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
@@ -570,7 +585,7 @@ export function ContinuationPanel({
               ) : (
                 <Play className="size-4" />
               )}
-              开始{activeTask?.label ?? "续写任务"}
+              {taskType === "direction" ? "AI 生成候选方向" : `开始${activeTask?.label ?? "续写任务"}`}
             </Button>
           </div>
         </CardContent>
@@ -582,9 +597,11 @@ export function ContinuationPanel({
         run={displayRun}
         producedLabel={PRODUCED_LABEL[taskType] ?? "项"}
         idleHint={
-          blocked
-            ? `这个步骤还没有运行过。${blocked}。`
-            : "这个步骤还没有运行过，配置好后点上面的「开始」。"
+          taskType === "direction"
+            ? "可以添加自定义方向，或使用上方的 AI 生成候选方向。"
+            : blocked
+              ? `这个步骤还没有运行过。${blocked}。`
+              : "这个步骤还没有运行过，配置好后点上面的「开始」。"
         }
         actions={runActions}
       />
@@ -598,17 +615,25 @@ export function ContinuationPanel({
               <span className="font-medium">续写方向</span>
               <span className="text-sm text-muted-foreground">共 {plans.length} 个</span>
             </div>
-            <Button variant="outline" size="sm" onClick={() => void refreshPlans()}>
-              <RotateCcw className="size-4" />
-              刷新
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" disabled={runActive} onClick={() => setDirectionEditor({ plan: null })}>
+                <Plus className="size-4" />自定义方向
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void refreshPlans()}>
+                <RotateCcw className="size-4" />
+                刷新
+              </Button>
+            </div>
           </div>
 
           {plans.length === 0 ? (
             <div className="rounded-lg border border-dashed p-10 text-center">
               <p className="text-sm text-muted-foreground">
-                还没有续写方向。先运行「逐章抽取」积累记忆，再生成 2–3 个差异明显的方向。
+                还没有续写方向。可以直接填写自己的构思，也可以积累故事记忆后，让 AI 生成候选方向。
               </p>
+              <Button className="mt-4" variant="outline" disabled={runActive} onClick={() => setDirectionEditor({ plan: null })}>
+                <Plus className="size-4" />添加自定义方向
+              </Button>
             </div>
           ) : (
             <ul role="list" className="space-y-3">
@@ -656,6 +681,11 @@ export function ContinuationPanel({
                       )}
 
                       <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                        <Button variant="ghost" size="sm" disabled={runActive || actingPlan === plan.id}
+                          onClick={() => setDirectionEditor({ plan })}>
+                          <Pencil className="size-4" />
+                          {plan.outline.length > 0 || plan.draftCount > 0 ? "修改并另存" : "编辑方向"}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -967,6 +997,24 @@ export function ContinuationPanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {directionEditor && (
+        <DirectionEditor projectId={projectId} plan={directionEditor.plan}
+          onClose={() => setDirectionEditor(null)}
+          onSaved={(saved, goToOutline) => {
+            setPlans((prev) => [saved, ...prev.filter((p) => p.id !== saved.id).map((p) =>
+              saved.status === "active" && p.status === "active" ? { ...p, status: "draft" as const } : p,
+            )]);
+            setExpandedId(saved.id);
+            setDirectionEditor(null);
+            if (goToOutline) {
+              setEditing(null);
+              setTaskType("outline");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }
+            notify.success(goToOutline ? "方向已保存并选定，请确认章纲配置后开始生成。" : "续写方向已保存");
+          }} />
+      )}
 
       {editingDraft && (
         <DraftEditor

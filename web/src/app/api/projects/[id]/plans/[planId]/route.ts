@@ -1,6 +1,8 @@
 import { handleError, ok, readJson } from "@/lib/api";
 import { deletePlan, getPlan, updatePlan, type PlanPatch } from "@/lib/continuation";
 import { parseOutline, parseStringArray, type OutlineItem } from "@/lib/continuation-view";
+import { directionNameSchema, directionSummarySchema } from "@/lib/continuation-direction";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,9 +11,9 @@ type Ctx = { params: Promise<{ id: string; planId: string }> };
 
 export async function GET(_request: Request, { params }: Ctx) {
   try {
-    const { planId } = await params;
+    const { id, planId } = await params;
     const plan = await getPlan(planId);
-    if (!plan) return ok({ error: "续写方向不存在。" }, { status: 404 });
+    if (!plan || plan.projectId !== id) return ok({ error: "续写方向不存在。" }, { status: 404 });
     return ok({ plan });
   } catch (error) {
     return handleError(error);
@@ -20,17 +22,23 @@ export async function GET(_request: Request, { params }: Ctx) {
 
 export async function PATCH(request: Request, { params }: Ctx) {
   try {
-    const { planId } = await params;
+    const { id, planId } = await params;
+    const plan = await getPlan(planId);
+    if (!plan || plan.projectId !== id) return ok({ error: "续写方向不存在。" }, { status: 404 });
     const body = (await readJson(request)) as {
       direction?: string;
       summary?: string | null;
       outline?: unknown;
       relatedThreads?: unknown;
+      expectedVersion?: unknown;
+      select?: unknown;
     };
 
     const patch: PlanPatch = {};
-    if (typeof body.direction === "string") patch.direction = body.direction;
-    if (body.summary === null || typeof body.summary === "string") patch.summary = body.summary;
+    if (body.direction !== undefined) patch.direction = directionNameSchema.min(1, "方向名称不能为空。").parse(body.direction);
+    if (body.summary !== undefined) patch.summary = directionSummarySchema.nullable().parse(body.summary);
+    if (body.expectedVersion !== undefined) patch.expectedVersion = z.number().int().positive().parse(body.expectedVersion);
+    if (body.select !== undefined) patch.select = z.boolean().parse(body.select);
     if (body.outline !== undefined) {
       // 客户端回传的是条目数组；一并容忍序列化字符串。
       const raw = typeof body.outline === "string" ? parseOutline(body.outline) : body.outline;
@@ -51,7 +59,9 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
 export async function DELETE(_request: Request, { params }: Ctx) {
   try {
-    const { planId } = await params;
+    const { id, planId } = await params;
+    const plan = await getPlan(planId);
+    if (!plan || plan.projectId !== id) return ok({ error: "续写方向不存在。" }, { status: 404 });
     await deletePlan(planId);
     return ok({ deleted: true });
   } catch (error) {

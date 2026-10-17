@@ -11,9 +11,10 @@ import { buildContinuationContext, renderContextBlock } from "@/lib/ai/context";
 import { deletePendingProposalsForDraft } from "@/lib/ai/proposals";
 import { requestJson } from "@/lib/ai/structured";
 import { parseOutline, type OutlineItem } from "@/lib/continuation-view";
+import { renderDirection } from "@/lib/continuation-direction";
 import type { TaskDefinition, TaskUnit } from "@/lib/ai/tasks/types";
 
-export const PROMPT_VERSION = "draft@1";
+export const PROMPT_VERSION = "draft@2";
 
 /** 上一章草稿作为「前情」注入的字符数（取结尾，越靠近本章越相关）。 */
 const PREV_TAIL_CHARS = 1200;
@@ -32,6 +33,7 @@ const SYSTEM = [
   "2. 与「前情」保持连贯：时间、地点、在场人物、物件状态都要接得上。",
   "3. 只写这一章的内容，不要提前写后面章纲的事，也不要总结、预告或写作者按。",
   "4. 直接输出正文段落，不要写「本章」「第 X 章」之类的元信息，不要使用 Markdown 标记。",
+  "5. 遵循方向说明中的人物选择、剧情目标、节奏和禁用情节，在本章章纲范围内落实，不要把未来构思误当作已发生事件。",
   NO_SOURCE_RULE,
 ].join("\n");
 
@@ -104,7 +106,7 @@ function buildPrompt(
   const parts = [
     contextBlock,
     "",
-    `【已选定的续写方向】\n${plan.direction}`,
+    renderDirection(plan),
     "",
     `【本章章纲（第 ${index} 章）】\n标题：${item.title}\n走向：${item.summary}`,
   ];
@@ -222,7 +224,7 @@ export const draftTask: TaskDefinition = {
     return {
       unitCount: items.length,
       unitLabel: "章",
-      totalChars: ctx.totalChars,
+      totalChars: ctx.totalChars + renderDirection(plan).length,
       sampleText: items[0] ? `第 ${items[0].index} 章 · ${items[0].title}\n${items[0].summary}` : "",
       note: `依据方向「${plan.direction.slice(0, 40)}」、${ctx.memory.entryCount} 条记忆与最近 ${ctx.recent.chapterTitles.length} 章原文，逐章生成 ${items.length} 章草稿。${
         withPrev > 0 ? "已生成的上一章会作为「前情」注入。" : ""

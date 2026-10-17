@@ -11,10 +11,11 @@ import {
 import { buildContinuationContext, renderContextBlock } from "@/lib/ai/context";
 import { requestJson } from "@/lib/ai/structured";
 import { updatePlan } from "@/lib/continuation";
+import { renderDirection } from "@/lib/continuation-direction";
 import type { OutlineItem } from "@/lib/continuation-view";
 import type { TaskDefinition, TaskUnit } from "@/lib/ai/tasks/types";
 
-export const PROMPT_VERSION = "outline@1";
+export const PROMPT_VERSION = "outline@2";
 
 /** 默认规划的章节数；调用方可经 payload.outlineCount 覆盖。 */
 const DEFAULT_OUTLINE_COUNT = 5;
@@ -27,8 +28,9 @@ const outlineItem = z.object({
 });
 
 const outlineSchema = z.object({
-  chapters: z.array(outlineItem).min(1).max(30),
+  chapters: z.array(outlineItem).max(30),
   notes: z.string().trim().max(1000).default(""),
+  conflicts: z.array(z.string().trim().min(1).max(1000)).max(10).default([]),
 });
 
 export type OutlineOutput = z.infer<typeof outlineSchema>;
@@ -40,30 +42,32 @@ const SYSTEM = [
   "2. 每一章都要推进方向中的核心冲突，不要写可有可无的过渡章。",
   "3. 承认既有事实：已被记忆确立的人物状态、规则与已发生事件不可推翻。",
   "4. 只排章纲，不要写章节正文。",
+  "5. 完整遵循方向说明中的作者要求。若与既有事实存在无法兼容的明确冲突，不要擅自改写要求或事实；返回 conflicts 说明具体冲突，并令 chapters 为空。未来剧情中的新发展不等于与既有事实冲突。",
   NO_SOURCE_RULE,
 ].join("\n");
 
 const RETURN_FIELDS = [
   '{ "chapters": [{ "title": string, "summary": string, "beats": [string], "relatedThreads": [string] }],',
-  '  "notes": string }',
+  '  "notes": string, "conflicts": [string] }',
 ].join("\n");
 
 const FIELD_GUIDE = [
   "chapters：按顺序排列的章节，每章给出 title（章标题）、summary（一章的走向，100–300 字）、beats（该章要推进的关键节拍，3–6 条）、relatedThreads（该章承接的既有线索）。",
   "notes：整体说明，交代这一批章纲如何服务于选定方向（可留空字符串）。",
+  "conflicts：作者方向与既有事实的明确冲突，无冲突时返回空数组。有冲突时逐条写明作者要求与哪条既有事实不兼容，等待作者核对。",
 ].join("\n");
 
 const SINGLE_UNIT: TaskUnit = { id: "outline", label: "章纲" };
 
 async function buildPrompt(
   contextBlock: string,
-  direction: string,
+  plan: { direction: string; summary: string | null },
   count: number,
 ): Promise<string> {
   return [
     contextBlock,
     "",
-    `【已选定的续写方向】\n${direction}`,
+    renderDirection(plan),
     "",
     `请为这个方向排出接下来 ${count} 章的章纲，字段名与结构严格如下：`,
     RETURN_FIELDS,
@@ -78,7 +82,7 @@ async function runUnit(_unit: TaskUnit, ctx: Parameters<TaskDefinition["runUnit"
   const planId = await resolvePlanId(ctx.projectId, ctx.payload.planId);
   const plan = await prisma.continuationPlan.findUnique({
     where: { id: planId },
-    select: { direction: true },
+    select: { direction: true, summary: true, version: true },
   });
   if (!plan) return { usage: {}, produced: 0 };
 
@@ -86,10 +90,19 @@ async function runUnit(_unit: TaskUnit, ctx: Parameters<TaskDefinition["runUnit"
   const context = await buildContinuationContext(ctx.projectId, { lastN: 2 });
   const res = await requestJson(ctx.profile, {
     system: SYSTEM,
-    prompt: await buildPrompt(renderContextBlock(context), plan.direction, count),
+    prompt: await buildPrompt(renderContextBlock(context), plan, count),
     schema: outlineSchema,
     maxTokens: outlineTask.maxTokens,
   });
+
+  if (res.data.conflicts.length > 0) {
+    throw new AnalysisError(
+      `方向与已有故事事实可能冲突，尚未写入章纲。请核对后修改方向说明或修正相关记忆，再重新生成：\n${res.data.conflicts.map((c) => `• ${c}`).join("\n")}`,
+    );
+  }
+  if (res.data.chapters.length === 0) {
+    throw new AnalysisError("未生成有效章纲，请重试。");
+  }
 
   const outline: OutlineItem[] = res.data.chapters.map((c, i) => ({
     index: i + 1,
@@ -99,7 +112,7 @@ async function runUnit(_unit: TaskUnit, ctx: Parameters<TaskDefinition["runUnit"
     relatedThreads: c.relatedThreads,
   }));
   // 覆盖写入所选方向的章纲；updatePlan 会递增 version，便于草稿追溯所依据的章纲版本。
-  await updatePlan(planId, { outline });
+  await updatePlan(planId, { outline, expectedVersion: plan.version });
 
   return { usage: res.usage, produced: outline.length };
 }
@@ -128,15 +141,15 @@ export const outlineTask: TaskDefinition = {
   async describe({ projectId, payload }) {
     const planId = await resolvePlanId(projectId, payload.planId);
     const [plan, ctx] = await Promise.all([
-      prisma.continuationPlan.findUnique({ where: { id: planId }, select: { direction: true } }),
+      prisma.continuationPlan.findUnique({ where: { id: planId }, select: { direction: true, summary: true } }),
       buildContinuationContext(projectId, { lastN: 2 }),
     ]);
     const count = payload.outlineCount ?? DEFAULT_OUTLINE_COUNT;
     return {
       unitCount: 1,
       unitLabel: "项",
-      totalChars: ctx.totalChars,
-      sampleText: plan?.direction ?? "",
+      totalChars: ctx.totalChars + (plan ? renderDirection(plan).length : 0),
+      sampleText: plan ? renderDirection(plan) : "",
       note: `依据方向「${plan?.direction ?? ""}」与 ${ctx.memory.entryCount} 条记忆，规划接下来 ${count} 章的章纲，写入该方向并使其版本号 +1。${NO_SOURCE_NOTE}`,
     };
   },

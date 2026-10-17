@@ -18,6 +18,7 @@ import {
   type PlanStatus,
 } from "@/lib/continuation-view";
 import type { IssueSeverity, IssueStatus } from "@/lib/domain";
+import { createDirectionSchema, directionName } from "@/lib/continuation-direction";
 
 type PlanRow = {
   id: string;
@@ -84,6 +85,31 @@ export async function getPlan(id: string): Promise<ContinuationPlanView | null> 
   return toPlanView(row, count);
 }
 
+/** 手动创建或从已有方向另存；章纲与草稿始终留在原方向。 */
+export async function createPlan(projectId: string, input: unknown): Promise<ContinuationPlanView> {
+  const value = createDirectionSchema.parse(input);
+  const row = await prisma.$transaction(async (tx) => {
+    if (!await tx.novelProject.findUnique({ where: { id: projectId }, select: { id: true } })) {
+      throw new AnalysisError("项目不存在。", 404);
+    }
+    const source = value.sourcePlanId
+      ? await tx.continuationPlan.findFirst({ where: { id: value.sourcePlanId, projectId } })
+      : null;
+    if (value.sourcePlanId && !source) throw new AnalysisError("原方向不存在。", 404);
+    if (value.select) {
+      await tx.continuationPlan.updateMany({ where: { projectId, status: "active" }, data: { status: "draft" } });
+    }
+    return tx.continuationPlan.create({ data: {
+      projectId,
+      direction: directionName(value.direction, value.summary),
+      summary: value.summary,
+      relatedThreadsJson: source?.relatedThreadsJson ?? "[]",
+      status: value.select ? "active" : "draft",
+    } });
+  });
+  return toPlanView(row, 0);
+}
+
 async function requirePlan(id: string): Promise<PlanRow> {
   const row = await prisma.continuationPlan.findUnique({ where: { id } });
   if (!row) throw new AnalysisError("续写方向不存在。", 404);
@@ -95,11 +121,13 @@ export type PlanPatch = {
   summary?: string | null;
   outline?: OutlineItem[];
   relatedThreads?: string[];
+  expectedVersion?: number;
+  select?: boolean;
 };
 
 /** 编辑方向或章纲。任一实质改动都递增 version，便于草稿追溯所依据的章纲版本。 */
 export async function updatePlan(id: string, patch: PlanPatch): Promise<ContinuationPlanView> {
-  await requirePlan(id);
+  const current = await requirePlan(id);
 
   const data: Record<string, unknown> = {};
   if (patch.direction !== undefined) {
@@ -114,12 +142,26 @@ export async function updatePlan(id: string, patch: PlanPatch): Promise<Continua
   if (patch.relatedThreads !== undefined) {
     data.relatedThreadsJson = JSON.stringify(patch.relatedThreads.map((s) => s.trim()).filter(Boolean));
   }
-  if (Object.keys(data).length === 0) {
-    return (await getPlan(id))!;
-  }
-  data.version = { increment: 1 };
-
-  const row = await prisma.continuationPlan.update({ where: { id }, data });
+  const row = await prisma.$transaction(async (tx) => {
+    const latest = await tx.continuationPlan.findUniqueOrThrow({ where: { id } });
+    if (patch.expectedVersion !== undefined && latest.version !== patch.expectedVersion) {
+      throw new AnalysisError("该方向已发生变化，请刷新后重新编辑。", 409);
+    }
+    const directionChanged = (data.direction !== undefined && data.direction !== latest.direction)
+      || (data.summary !== undefined && data.summary !== latest.summary);
+    if (directionChanged && (parseOutline(latest.outlineJson).length > 0
+      || await tx.draftChapter.count({ where: { planId: id } }) > 0)) {
+      throw new AnalysisError("该方向已有章纲或草稿，请另存为新方向。", 409);
+    }
+    if (patch.select) {
+      await tx.continuationPlan.updateMany({
+        where: { projectId: current.projectId, status: "active", id: { not: id } }, data: { status: "draft" },
+      });
+      data.status = "active";
+    }
+    if (Object.keys(data).length === 0) return latest;
+    return tx.continuationPlan.update({ where: { id }, data: { ...data, version: { increment: 1 } } });
+  });
   const count = await prisma.draftChapter.count({ where: { planId: id } });
   return toPlanView(row, count);
 }

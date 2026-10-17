@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:continuation": "node --test tests/continuation.test.mjs",
     "desktop:dev": "pnpm --dir desktop-shell dev",
     "desktop:dist": "pnpm exec prisma generate && pnpm build && tsx scripts/prepare-desktop.mts && pnpm --dir desktop-shell dist"
   },
