@@ -9,7 +9,8 @@ files:
   - setup.html
   - setup.js
   - splash.html
-  - app-icon-256.png
+  - app-icon-v2.ico
+  - app-icon-v2.png
   - package.json
 asar: true
 afterPack: ./after-pack.cjs
@@ -27,7 +28,7 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: app-icon-256.png
+  icon: app-icon-v2.ico
 nsis:
   oneClick: false
   perMachine: false

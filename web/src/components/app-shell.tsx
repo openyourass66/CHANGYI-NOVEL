@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Feather } from "lucide-react";
+import Image from "next/image";
 import { NavLinks } from "@/components/nav-links";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,7 +14,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               href="/"
               className="flex items-center gap-2 rounded-md px-1 font-semibold tracking-tight focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
-              <Feather className="size-5 text-primary" aria-hidden />
+              <Image
+                src="/app-icon-v2.png"
+                width={28}
+                height={28}
+                alt=""
+                className="size-7 shrink-0"
+              />
               <span>长忆</span>
             </Link>
             <div className="h-5 w-px bg-border" aria-hidden />

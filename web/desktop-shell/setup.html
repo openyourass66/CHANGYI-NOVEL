@@ -8,7 +8,7 @@
   <style>
     :root { color-scheme: light dark; font: 15px/1.65 'Segoe UI','Microsoft YaHei',sans-serif; background:#fbfaf7; color:#25231f; }
     * { box-sizing:border-box; } body { margin:0; padding:50px 24px; } main { max-width:760px; margin:auto; }
-    .brand { color:#405992; font-weight:650; margin-bottom:28px; } h1 { font-size:28px; margin:0 0 8px; } p { color:#716b61; margin:0 0 24px; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:650; margin-bottom:28px; } .brand img { width:36px; height:36px; } h1 { font-size:28px; margin:0 0 8px; } p { color:#716b61; margin:0 0 24px; }
     section { border:1px solid #e4e0d8; border-radius:14px; background:#fff; padding:24px; margin:24px 0; }
     label,legend { font-weight:600; } label { display:block; margin:12px 0 6px; } .row { display:flex; gap:10px; flex-wrap:wrap; }
     input[type=text],select { font:inherit; background:transparent; color:inherit; border:1px solid #d8d3ca; border-radius:8px; padding:10px 12px; min-width:180px; flex:1; width:100%; }
@@ -20,7 +20,7 @@
   </style>
 </head>
 <body><main>
-  <div class="brand">长忆小说工作台</div>
+  <div class="brand"><img src="./app-icon-v2.png" width="36" height="36" alt="" />长忆小说工作台</div>
   <h1>选择数据保存位置</h1>
   <p>项目、原文和模型配置将保存在你选择的文件夹。之后可以在「设置」中更改。</p>
   <section>

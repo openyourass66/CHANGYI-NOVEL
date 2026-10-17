@@ -62,6 +62,8 @@ pnpm desktop:dist
 
 安装包输出到 `web/release-desktop/`。桌面壳仅负责启动和显示本地应用，业务页面、数据库和 API 仍由原有 Web 项目提供。
 
+桌面程序、安装快捷方式、启动页、数据目录设置页、应用导航栏和浏览器标签页统一使用深绿色书页图标。
+
 免安装运行可打开 `web/release-desktop/win-unpacked/长忆.exe`。所选目录记录在 `%APPDATA%\Changyi\app-config.json`，启动诊断保存在 `%APPDATA%\Changyi\logs\startup.log`。旧 Web 项目的模型密钥迁移需要保留原 `web/.env`，迁移程序会在原数据目录的上一级读取它并校验加密配置。
 
 常用检查命令（在 `web/` 目录运行）：

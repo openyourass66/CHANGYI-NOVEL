@@ -309,6 +309,7 @@ if (!app.requestSingleInstanceLock()) {
       minHeight: 680,
       show: true,
       title: "长忆小说工作台",
+      icon: path.join(__dirname, "app-icon-v2.ico"),
       backgroundColor: "#f8f9fc",
       autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, "preload.cjs") },
