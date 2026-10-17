@@ -41,6 +41,27 @@ pnpm dev
 
 打开 <http://localhost:3000>。模型档案在应用的「设置」页配置。没有配置模型时，仍可创建项目、导入和校对原文。
 
+## Windows 桌面版
+
+桌面版使用 Electron 打开同一套 Next.js 单体应用，并在本机启动服务；无需安装 Node.js、浏览器或数据库。安装包在首次启动时初始化本地 SQLite 数据库。应用数据保存在当前 Windows 用户的 `%APPDATA%\Changyi\data`，加密密钥保存在 `%APPDATA%\Changyi\app-config.json`。重装应用不会删除用户数据；备份可通过 Web 工作台的项目导入/导出迁移。
+
+在 Windows 开发环境中，进入 `web/` 安装依赖后运行：
+
+```powershell
+pnpm install
+pnpm desktop:dev
+```
+
+生成 x64 安装程序：
+
+```powershell
+pnpm desktop:dist
+```
+
+安装包输出到 `web/release-desktop/`。桌面壳仅负责启动和显示本地应用，业务页面、数据库和 API 仍由原有 Web 项目提供。
+
+免安装运行可打开 `web/release-desktop/win-unpacked/长忆.exe`。启动诊断保存在 `%APPDATA%\Changyi\logs\startup.log`；应用启动会自动迁移已有数据库，升级后继续使用原有用户数据。完整备份请保留 `%APPDATA%\Changyi` 中的 `data/` 和 `app-config.json`。
+
 常用检查命令（在 `web/` 目录运行）：
 
 ```powershell
@@ -64,6 +85,8 @@ pnpm build
 .
 ├── README.md                  # 项目说明与运行指南
 └── web/
+    ├── desktop-shell/         # Electron Windows 桌面壳
+    ├── scripts/               # 桌面运行资源准备
     ├── prisma/                # SQLite 数据模型与迁移
     ├── src/app/               # Next.js 页面和 API
     ├── src/components/        # 项目、记忆、分析和续写界面

@@ -43,3 +43,5 @@ next-env.d.ts
 
 # local data (SQLite 数据库、导入的源文、导出包)
 /data
+/.desktop-build
+/release-desktop

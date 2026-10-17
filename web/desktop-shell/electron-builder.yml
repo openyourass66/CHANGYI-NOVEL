@@ -1,0 +1,32 @@
+appId: com.changyi.novel
+productName: 长忆
+directories:
+  output: ../release-desktop
+files:
+  - main.cjs
+  - splash.html
+  - app-icon-256.png
+  - package.json
+asar: true
+afterPack: ./after-pack.cjs
+asarUnpack:
+  - node_modules/**
+extraResources:
+  - from: ../.desktop-build/standalone
+    to: standalone
+  - from: ../.desktop-build/prisma
+    to: prisma
+  - from: ../.desktop-build/prisma-cli/node_modules
+    to: app.asar.unpacked/node_modules
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: app-icon-256.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
