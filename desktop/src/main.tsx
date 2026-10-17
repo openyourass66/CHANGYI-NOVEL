@@ -11,6 +11,7 @@ import { ProjectLibrary } from "@/components/projects/project-library";
 import { ChapterWorkspace } from "@/components/projects/chapter-workspace";
 import { MemoryWorkbench } from "@/components/projects/memory-workbench";
 import { AnalysisPanel } from "@/components/projects/analysis-panel";
+import { ContinuationPanel } from "@/components/projects/continuation-panel";
 import { ProjectNav } from "@/components/projects/project-nav";
 import { ProfileManager } from "@/components/settings/profile-manager";
 import { Button } from "@/components/ui/button";
@@ -109,6 +110,27 @@ function Analysis() {
     totalMemory={data.totalMemory} hasMemory={data.totalMemory > 0} initialStage={data.run?.taskType ?? null} />;
 }
 
+type ContinuationData = Workspace & {
+  profiles: import("@/lib/ai/profiles").ProfileView[];
+  plans: import("@/lib/continuation-view").ContinuationPlanView[];
+  run: import("@/lib/ai/runner").RunStatusView | null;
+  taskRuns: Record<string, import("@/lib/ai/runner").RunStatusView | null>;
+  hasMemory: boolean;
+};
+
+function Continuation() {
+  const data=useLoaderData() as ContinuationData;
+  const tasks: import("@/lib/ai/tasks/registry").TaskSummary[]=[
+    {type:"direction",label:"生成续写方向",scope:"project",unitLabel:"项",
+      description:"依据记忆与最近原文，提出 3 个差异明显的续写方向供你择一。",requirement:"memory"},
+    {type:"outline",label:"生成章纲",scope:"project",unitLabel:"项",
+      description:"为已选定的方向排出接下来若干章的章纲，写入该方向并递增其版本。",requirement:"plan"},
+  ];
+  return <ContinuationPanel key={data.project.id} projectId={data.project.id} projectName={data.project.name}
+    profiles={data.profiles} tasks={tasks} initialPlans={data.plans} initialRun={data.run}
+    taskRuns={data.taskRuns} hasMemory={data.hasMemory} initialStage={data.run?.taskType ?? null}/>;
+}
+
 function Settings() {
   const profiles = useLoaderData() as { profiles: import("@/lib/ai/profiles").ProfileView[]; encryptionReady: boolean; keyError?: string };
   const [directory, setDirectory] = useState("");
@@ -191,8 +213,25 @@ const analysisLoader = async ({ params }: { params: Record<string, string | unde
     api<{ counts: Record<string, number> }>(`/api/projects/${id}/memory`),
   ]);
   return { ...workspace, profiles: profiles.profiles, proposals: proposals.proposals, counts: proposals.counts,
-    run: latest.run, taskRuns: latest.taskRuns,
+    run: newestRun(latest.taskRuns,["chapter-extract","book-synthesis"]), taskRuns: latest.taskRuns,
     totalMemory: Object.values(memory.counts).reduce((sum, count) => sum + count, 0) };
+};
+function newestRun(runs:Record<string,import("@/lib/ai/runner").RunStatusView|null>,types:string[]) {
+  return types.map((type)=>runs[type]).filter((run):run is import("@/lib/ai/runner").RunStatusView=>Boolean(run))
+    .sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+}
+const continuationLoader=async ({params}:{params:Record<string,string|undefined>}):Promise<ContinuationData>=>{
+  const id=params.id;
+  const [workspace,profiles,plans,latest,memory]=await Promise.all([
+    workspaceLoader({params}),
+    api<{profiles:ContinuationData["profiles"]}>("/api/model-profiles"),
+    api<{plans:ContinuationData["plans"]}>(`/api/projects/${id}/plans`),
+    api<{taskRuns:ContinuationData["taskRuns"]}>(`/api/projects/${id}/analysis`),
+    api<{counts:Record<string,number>}>(`/api/projects/${id}/memory`),
+  ]);
+  return {...workspace,profiles:profiles.profiles,plans:plans.plans,taskRuns:latest.taskRuns,
+    run:newestRun(latest.taskRuns,["direction","outline"]),
+    hasMemory:Object.values(memory.counts).some((count)=>count>0)};
 };
 const router = createHashRouter([{
   element: <Shell />, errorElement: <ErrorPage />, children: [
@@ -201,6 +240,7 @@ const router = createHashRouter([{
     { path: "/projects/:id", loader: workspaceLoader, element: <Chapters /> },
     { path: "/projects/:id/memory", loader: memoryLoader, element: <Memory /> },
     { path: "/projects/:id/analysis", loader: analysisLoader, element: <Analysis /> },
+    { path: "/projects/:id/continuation", loader: continuationLoader, element: <Continuation /> },
     { path: "/projects/:id/:section", loader: workspaceLoader, element: <MigrationPage /> },
   ],
 }]);

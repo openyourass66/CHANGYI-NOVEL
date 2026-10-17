@@ -49,7 +49,7 @@ fn latest(db: &Connection, project_id: &str) -> Result<Value> {
         &[json!(project_id)],
     )?;
     let recent=query(db,
-        "SELECT id,taskType FROM AnalysisRun WHERE projectId=? AND taskType IN ('chapter-extract','book-synthesis') ORDER BY createdAt DESC",
+        "SELECT id,taskType FROM AnalysisRun WHERE projectId=? AND taskType IN ('chapter-extract','book-synthesis','direction','outline') ORDER BY createdAt DESC",
         &[json!(project_id)])?;
     let mut task_runs = serde_json::Map::new();
     let mut newest = None;
@@ -110,31 +110,35 @@ fn chapter_units(db: &Connection, project_id: &str, body: &Value) -> Result<Vec<
 
 fn task_type(body: &Value) -> Result<&str> {
     let task = body["taskType"].as_str().unwrap_or("chapter-extract");
-    if !["chapter-extract", "book-synthesis"].contains(&task) {
+    if !["chapter-extract", "book-synthesis", "direction", "outline"].contains(&task) {
         return Err("该分析任务尚未迁移。".into());
     }
     Ok(task)
 }
 
 fn task_label(task: &str) -> &str {
-    if task == "book-synthesis" {
-        "全书统合"
-    } else {
-        "逐章抽取"
+    match task {
+        "book-synthesis" => "全书统合",
+        "direction" => "生成续写方向",
+        "outline" => "生成章纲",
+        _ => "逐章抽取",
     }
 }
 fn unit_label(task: &str) -> &str {
-    if task == "book-synthesis" {
-        "项"
-    } else {
+    if task == "chapter-extract" {
         "章节"
+    } else {
+        "项"
     }
 }
 fn task_note(task: &str) -> &str {
-    if task == "book-synthesis" {
-        "统合已有记忆与最近原文，产出全书概要、结局状态、未决线索和续写约束；结果标记为推断。"
-    } else {
-        "逐章抽取：章节笔记、事件、人物（含认知）、设定、悬念与术语，每条附原文出处。"
+    match task {
+        "book-synthesis" => {
+            "统合已有记忆与最近原文，产出全书概要、结局状态、未决线索和续写约束；结果标记为推断。"
+        }
+        "direction" => "依据已确认记忆与最近原文，提出 3 个候选续写方向，供作者择一。",
+        "outline" => "依据选定方向与已确认记忆，生成接下来若干章的章纲。",
+        _ => "逐章抽取：章节笔记、事件、人物（含认知）、设定、悬念与术语，每条附原文出处。",
     }
 }
 
@@ -156,9 +160,42 @@ fn task_units(db: &Connection, project_id: &str, body: &Value, task: &str) -> Re
         {
             return Err("还没有记忆条目可供参考，请先运行「逐章抽取」。".into());
         }
-        Ok(vec![
-            json!({"id":"synthesis","rawTitle":"全书统合","content":""}),
-        ])
+        if task == "outline" {
+            let plan_id = resolve_plan_id(db, project_id, &body["payload"])?;
+            if !query(
+                db,
+                "SELECT id FROM DraftChapter WHERE planId=? LIMIT 1",
+                &[json!(plan_id)],
+            )?
+            .is_empty()
+            {
+                return Err("这个方向已有草稿，不能直接重生成章纲。请先导出需要保留的草稿，再删除该方向的草稿后重试。".into());
+            }
+        }
+        let (unit_id, label) = match task {
+            "direction" => ("directions", "续写方向"),
+            "outline" => ("outline", "章纲"),
+            _ => ("synthesis", "全书统合"),
+        };
+        Ok(vec![json!({"id":unit_id,"rawTitle":label,"content":""})])
+    }
+}
+
+fn resolve_plan_id(db: &Connection, project_id: &str, payload: &Value) -> Result<String> {
+    if let Some(plan_id) = payload["planId"].as_str() {
+        one(
+            db,
+            "SELECT id FROM ContinuationPlan WHERE id=? AND projectId=?",
+            &[json!(plan_id), json!(project_id)],
+        )?;
+        Ok(plan_id.into())
+    } else {
+        let rows=query(db,"SELECT id FROM ContinuationPlan WHERE projectId=? AND status='active' ORDER BY updatedAt DESC LIMIT 1",
+            &[json!(project_id)])?;
+        rows.first()
+            .and_then(|row| row["id"].as_str())
+            .map(str::to_string)
+            .ok_or("请先选定一个续写方向。".into())
     }
 }
 
@@ -167,9 +204,23 @@ fn preview(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Resu
     let profile_id = body["profileId"].as_str().ok_or("请选择模型档案。")?;
     let profile = model::resolve(db, root, profile_id)?;
     let units = task_units(db, project_id, body, task)?;
-    let (total, sample) = if task == "book-synthesis" {
-        let ctx = context::build(db, project_id, 1)?;
-        (ctx.total_chars, ctx.memory_sample)
+    let (total, sample) = if task != "chapter-extract" {
+        let ctx = context::build(db, project_id, if task == "book-synthesis" { 1 } else { 2 })?;
+        if task == "outline" {
+            let plan_id = resolve_plan_id(db, project_id, &body["payload"])?;
+            let plan = one(
+                db,
+                "SELECT direction,summary FROM ContinuationPlan WHERE id=?",
+                &[json!(plan_id)],
+            )?;
+            let direction = plan["direction"].as_str().unwrap_or("");
+            (
+                ctx.total_chars + direction.encode_utf16().count(),
+                format!("【已选定的续写方向】\n{direction}"),
+            )
+        } else {
+            (ctx.total_chars, ctx.memory_sample)
+        }
     } else {
         (
             units
@@ -229,12 +280,20 @@ fn start(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Result
         "chapterId":if task=="chapter-extract"{row["id"].clone()}else{Value::Null}})
         })
         .collect::<Vec<_>>();
-    let stored = json!({"payload":{"chapterIds":body["chapterIds"]},"units":units});
+    let payload = if task == "chapter-extract" {
+        json!({"chapterIds":body["chapterIds"]})
+    } else {
+        body["payload"]
+            .as_object()
+            .map(|_| body["payload"].clone())
+            .unwrap_or(json!({}))
+    };
+    let stored = json!({"payload":payload,"units":units});
     let run_id = id();
     let at = now();
     execute(db,"INSERT INTO AnalysisRun(id,projectId,taskType,inputRangeJson,modelProfileId,promptVersion,status,usageJson,progressJson,authorizedAt,createdAt,updatedAt) VALUES(?,?,?,?,?,?,'pending','{}',?,?,?,?)",
         &[json!(run_id),json!(project_id),json!(task),json!(stored.to_string()),json!(profile_id),
-            json!(format!("{task}@1")),json!(seed(units.len()).to_string()),
+            json!(if task=="outline"{"outline@2".to_string()}else{format!("{task}@1")}),json!(seed(units.len()).to_string()),
             if profile.is_local{Value::Null}else{json!(at)},json!(at),json!(at)])?;
     spawn(root.to_path_buf(), run_id.clone());
     Ok(json!({"runId":run_id}))
@@ -314,7 +373,7 @@ fn status(db: &Connection, run_id: &str) -> Result<Value> {
     }).collect::<Vec<_>>();
     Ok(
         json!({"id":run["id"],"projectId":run["projectId"],"taskType":run["taskType"],
-        "taskLabel":task_label(run["taskType"].as_str().unwrap_or("")),"unitLabel":if run["taskType"]=="book-synthesis"{"项"}else{"章"},"status":if stalled{"stalled"}else{run["status"].as_str().unwrap_or("failed")},
+        "taskLabel":task_label(run["taskType"].as_str().unwrap_or("")),"unitLabel":if run["taskType"]=="chapter-extract"{"章"}else{"项"},"status":if stalled{"stalled"}else{run["status"].as_str().unwrap_or("failed")},
         "progress":progress,"usage":parse(&run,"usageJson"),"error":run["error"],
         "promptVersion":run["promptVersion"],"authorizedAt":run["authorizedAt"],
         "createdAt":run["createdAt"],"startedAt":run["startedAt"],"finishedAt":run["finishedAt"],
@@ -426,15 +485,18 @@ fn process(db: &mut Connection, root: &Path, run_id: &str) -> Result<()> {
                 &[json!(unit_id)],
             )?;
         }
-        let outcome = if let Some(chapter) = &chapter {
-            run_chapter(db, &profile, run_id, chapter)
-        } else {
-            run_book(
+        let project_id = run["projectId"].as_str().ok_or("任务项目无效。")?;
+        let outcome = match run["taskType"].as_str().unwrap_or("") {
+            "chapter-extract" => run_chapter(
                 db,
                 &profile,
                 run_id,
-                run["projectId"].as_str().ok_or("任务项目无效。")?,
-            )
+                chapter.as_ref().ok_or("章节不存在。")?,
+            ),
+            "book-synthesis" => run_book(db, &profile, run_id, project_id),
+            "direction" => run_direction(db, &profile, run_id, project_id),
+            "outline" => run_outline(db, &profile, run_id, project_id, &stored["payload"]),
+            _ => Err("未知任务类型。".into()),
         };
         let state = one(
             db,
@@ -857,4 +919,161 @@ fn run_book(
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok((count, usage))
+}
+
+fn run_direction(
+    db: &mut Connection,
+    profile: &model::Profile,
+    run_id: &str,
+    project_id: &str,
+) -> Result<(usize, Value)> {
+    let ctx = context::build(db, project_id, 2)?;
+    if ctx.memory_count == 0 {
+        return Err("还没有记忆条目可供参考。".into());
+    }
+    let system="你是一名小说策划，负责在既有故事之上提出可选续写方向。每个方向必须扎根于记忆与最近原文，不得凭空引入新设定。方向之间应有显著差异；只提出方向，不写正文或章纲，不替作者拍板。";
+    let prompt=format!("{}\n\n请提出 3 个差异明显的续写方向，只返回 JSON：{{\"candidates\":[{{\"direction\":string,\"summary\":string,\"relatedThreads\":[string]}}]}}。direction 用一句话命名；summary 说明核心冲突、人物选择与既有悬念关系；relatedThreads 使用已有记忆中的线索标题。",ctx.text);
+    let (output, usage) = model::request_json(profile, system, &prompt, 8192)?;
+    if one(
+        db,
+        "SELECT status FROM AnalysisRun WHERE id=?",
+        &[json!(run_id)],
+    )?["status"]
+        == "canceled"
+    {
+        return Err("任务已取消。".into());
+    }
+    let candidates = output["candidates"]
+        .as_array()
+        .filter(|rows| !rows.is_empty() && rows.len() <= 4)
+        .ok_or("模型未生成有效候选方向。")?;
+    let mut clean = Vec::new();
+    for item in candidates {
+        let direction = item["direction"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.encode_utf16().count() <= 300)
+            .ok_or("候选方向名称无效。")?;
+        let summary = item["summary"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.encode_utf16().count() <= 1500)
+            .ok_or("候选方向说明无效。")?;
+        let related = item["relatedThreads"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.encode_utf16().count() <= 120)
+            .take(20)
+            .collect::<Vec<_>>();
+        clean.push((
+            direction.to_string(),
+            summary.to_string(),
+            json!(related).to_string(),
+        ));
+    }
+    let tx = db.transaction().map_err(|e| e.to_string())?;
+    for (direction, summary, related) in &clean {
+        execute(&tx,"INSERT INTO ContinuationPlan(id,projectId,direction,summary,outlineJson,relatedThreadsJson,status,version,createdAt,updatedAt) VALUES(?,?,?,?,'[]',?,'draft',1,?,?)",
+            &[json!(id()),json!(project_id),json!(direction),json!(summary),json!(related),json!(now()),json!(now())])?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok((clean.len(), usage))
+}
+
+fn run_outline(
+    db: &mut Connection,
+    profile: &model::Profile,
+    run_id: &str,
+    project_id: &str,
+    payload: &Value,
+) -> Result<(usize, Value)> {
+    let plan_id = resolve_plan_id(db, project_id, payload)?;
+    let plan = one(
+        db,
+        "SELECT * FROM ContinuationPlan WHERE id=? AND projectId=?",
+        &[json!(plan_id), json!(project_id)],
+    )?;
+    if !query(
+        db,
+        "SELECT id FROM DraftChapter WHERE planId=? LIMIT 1",
+        &[json!(plan_id)],
+    )?
+    .is_empty()
+    {
+        return Err("这个方向已有草稿，不能直接重生成章纲。".into());
+    }
+    let count = payload["outlineCount"].as_u64().unwrap_or(5);
+    if !(1..=30).contains(&count) {
+        return Err("章纲目标数量无效。".into());
+    }
+    let ctx = context::build(db, project_id, 2)?;
+    let direction = plan["direction"].as_str().unwrap_or("");
+    let summary = plan["summary"].as_str().unwrap_or("");
+    let system="你是一名小说结构师，负责为已选定方向排出接下来若干章的章纲。严格服务于方向，每章推进核心冲突；不得推翻既有事实。只排章纲，不写正文。若作者要求与既有事实存在明确冲突，返回 conflicts 并令 chapters 为空。";
+    let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n方向说明中的剧情目标、人物选择、节奏和禁用情节均需遵循；未来构思不能当作已经发生的故事事实。\n\n请为这个方向排出接下来 {} 章的章纲，只返回 JSON：{{\"chapters\":[{{\"title\":string,\"summary\":string,\"beats\":[string],\"relatedThreads\":[string]}}],\"notes\":string,\"conflicts\":[string]}}。如有与既有事实明确冲突，请在 conflicts 逐条指出，并令 chapters 为空。",ctx.text,direction,summary,count);
+    let (output, usage) = model::request_json(profile, system, &prompt, 8192)?;
+    if one(
+        db,
+        "SELECT status FROM AnalysisRun WHERE id=?",
+        &[json!(run_id)],
+    )?["status"]
+        == "canceled"
+    {
+        return Err("任务已取消。".into());
+    }
+    let conflicts = output["conflicts"].as_array().cloned().unwrap_or_default();
+    if !conflicts.is_empty() {
+        return Err(format!(
+            "方向与已有故事事实可能冲突，尚未写入章纲：\n{}",
+            conflicts
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|s| format!("• {s}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+    }
+    let chapters = output["chapters"]
+        .as_array()
+        .filter(|rows| !rows.is_empty() && rows.len() <= 30)
+        .ok_or("未生成有效章纲，请重试。")?;
+    let mut clean = Vec::new();
+    for (i, item) in chapters.iter().enumerate() {
+        let title = item["title"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.encode_utf16().count() <= 120)
+            .ok_or("章纲标题无效。")?;
+        let summary = item["summary"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.encode_utf16().count() <= 1200)
+            .ok_or("章纲内容无效。")?;
+        let strings = |field: &str| max_strings(item, field, 20);
+        clean.push(json!({"index":i+1,"title":title,"summary":summary,
+            "beats":strings("beats"),"relatedThreads":strings("relatedThreads")}));
+    }
+    crate::continuation::update_plan(
+        db,
+        project_id,
+        &plan_id,
+        &json!({"outline":clean,"expectedVersion":plan["version"]}),
+    )?;
+    Ok((clean.len(), usage))
+}
+
+fn max_strings(item: &Value, field: &str, limit: usize) -> Vec<String> {
+    item[field]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .take(limit)
+        .map(str::to_string)
+        .collect()
 }

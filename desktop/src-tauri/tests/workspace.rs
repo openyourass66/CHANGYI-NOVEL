@@ -345,6 +345,225 @@ fn book_synthesis_requires_memory_and_creates_inferred_proposals() {
 }
 
 #[test]
+fn continuation_plans_drafts_and_issues_respect_project_and_versions() {
+    let mut f = Fixture::new();
+    let project = f.create();
+    let other = f.create();
+    let plan_id = f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/plans"),
+            json!({"direction":"向北走","summary":"主角将去北境","select":true}),
+        )
+        .unwrap()["plan"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(f
+        .request(
+            "GET",
+            &format!("/api/projects/{other}/plans/{plan_id}"),
+            Value::Null
+        )
+        .is_err());
+    let updated=f.request("PATCH",&format!("/api/projects/{project}/plans/{plan_id}"),json!({
+        "expectedVersion":1,"outline":[{"index":7,"title":"北境","summary":"抵达山脚","beats":["出发"],"relatedThreads":[]}]
+    })).unwrap();
+    assert_eq!(updated["plan"]["version"], 2);
+    assert_eq!(updated["plan"]["outline"][0]["index"], 1);
+    assert!(f
+        .request(
+            "PATCH",
+            &format!("/api/projects/{project}/plans/{plan_id}"),
+            json!({"expectedVersion":1,"summary":"过期修改"})
+        )
+        .is_err());
+    assert!(f
+        .request(
+            "PATCH",
+            &format!("/api/projects/{project}/plans/{plan_id}"),
+            json!({"summary":"改方向"})
+        )
+        .unwrap_err()
+        .contains("另存"));
+    let second = f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/plans"),
+            json!({"summary":"留在故乡","sourcePlanId":plan_id,"select":true}),
+        )
+        .unwrap();
+    assert_eq!(second["plan"]["status"], "active");
+    assert_eq!(
+        f.request(
+            "GET",
+            &format!("/api/projects/{project}/plans/{plan_id}"),
+            Value::Null
+        )
+        .unwrap()["plan"]["status"],
+        "draft"
+    );
+    let draft_id = database::id();
+    f.db.execute("INSERT INTO DraftChapter(id,projectId,planId,\"index\",title,content,outlineItemJson,version,continuityCheckJson,memoryUpdateStatus,createdAt,updatedAt) VALUES(?,?,?,1,'北境','旧正文','{}',1,'{}','proposed',?,?)",
+        rusqlite::params![draft_id,project,plan_id,database::now(),database::now()]).unwrap();
+    let proposal_id = database::id();
+    f.db.execute("INSERT INTO MemoryProposal(id,projectId,draftId,kind,category,content,status,createdAt,updatedAt) VALUES(?,?,?,'add','summary','旧提案','inferred',?,?)",
+        rusqlite::params![proposal_id,project,draft_id,database::now(),database::now()]).unwrap();
+    let edited = f
+        .request(
+            "PATCH",
+            &format!("/api/projects/{project}/drafts/{draft_id}"),
+            json!({"title":"北境新章","content":"作者新正文"}),
+        )
+        .unwrap();
+    assert_eq!(edited["draft"]["version"], 2);
+    assert_eq!(edited["draft"]["memoryUpdateStatus"], "none");
+    assert_eq!(
+        f.request(
+            "GET",
+            &format!("/api/projects/{project}/proposals"),
+            Value::Null
+        )
+        .unwrap()["proposals"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    let issue_id = database::id();
+    f.db.execute("INSERT INTO ContinuityIssue(id,projectId,draftId,category,severity,description,evidenceJson,status,createdAt,updatedAt) VALUES(?,?,?,'设定','warning','时间不符','[]','open',?,?)",
+        rusqlite::params![issue_id,project,draft_id,database::now(),database::now()]).unwrap();
+    let issue = f
+        .request(
+            "PATCH",
+            &format!("/api/projects/{project}/issues/{issue_id}"),
+            json!({"status":"resolved"}),
+        )
+        .unwrap();
+    assert_eq!(issue["issue"]["status"], "resolved");
+    f.request(
+        "DELETE",
+        &format!("/api/projects/{project}/plans/{plan_id}"),
+        Value::Null,
+    )
+    .unwrap();
+    assert!(f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/drafts/{draft_id}"),
+            Value::Null
+        )
+        .is_err());
+    assert!(f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/issues/{issue_id}"),
+            Value::Null
+        )
+        .is_err());
+}
+
+#[test]
+fn direction_and_outline_tasks_write_reviewable_plans() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let outputs = [
+            json!({"candidates":[{"direction":"向北追寻","summary":"追查失踪者","relatedThreads":["失踪"]},
+                {"direction":"留守故乡","summary":"守护家园","relatedThreads":[]}]}),
+            json!({"chapters":[{"title":"出发","summary":"启程北上","beats":["告别"],"relatedThreads":["失踪"]},
+                {"title":"山口","summary":"抵达山口","beats":["遭遇暴雪"],"relatedThreads":[]}],
+                "notes":"","conflicts":[]}),
+        ];
+        for output in outputs {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut input = [0u8; 8192];
+            let _ = stream.read(&mut input);
+            let payload=json!({"choices":[{"message":{"content":output.to_string()}}],"usage":{"total_tokens":40}}).to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+        }
+    });
+    let mut f = Fixture::new();
+    let project = f.create();
+    f.import(&project, "他在故乡寻找失踪的人。");
+    f.request("POST",&format!("/api/projects/{project}/memory"),
+        json!({"category":"thread","key":"missing","title":"失踪","content":"有人失踪","status":"open","citations":[]})).unwrap();
+    let profile = f
+        .request(
+            "POST",
+            "/api/model-profiles",
+            json!({"name":"Mock","provider":"ollama",
+        "model":"mock","baseUrl":format!("http://{address}/v1"),"isLocal":true}),
+        )
+        .unwrap()["profile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let wait_run = |f: &mut Fixture, run_id: &str| {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            let run = f
+                .request("GET", &format!("/api/analysis/{run_id}"), Value::Null)
+                .unwrap()["run"]
+                .clone();
+            if run["status"] == "done" {
+                return run;
+            }
+            if run["status"] == "failed" {
+                panic!("task failed: {}", run["error"]);
+            }
+            assert!(Instant::now() < deadline, "task timed out");
+            std::thread::sleep(Duration::from_millis(30));
+        }
+    };
+    let direction = f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/analysis"),
+            json!({"taskType":"direction","profileId":profile}),
+        )
+        .unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(wait_run(&mut f, &direction)["progress"]["produced"], 2);
+    let plans = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/plans"),
+            Value::Null,
+        )
+        .unwrap()["plans"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(plans.len(), 2);
+    let plan_id = plans[0]["id"].as_str().unwrap();
+    f.request(
+        "POST",
+        &format!("/api/projects/{project}/plans/{plan_id}/activate"),
+        Value::Null,
+    )
+    .unwrap();
+    let outline=f.request("POST",&format!("/api/projects/{project}/analysis"),
+        json!({"taskType":"outline","profileId":profile,"payload":{"planId":plan_id,"outlineCount":2}})).unwrap()["runId"].as_str().unwrap().to_string();
+    assert_eq!(wait_run(&mut f, &outline)["progress"]["produced"], 2);
+    let saved = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/plans/{plan_id}"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(saved["plan"]["outline"].as_array().unwrap().len(), 2);
+    assert_eq!(saved["plan"]["version"], 2);
+    server.join().unwrap();
+}
+
+#[test]
 fn memory_versions_restore_conflicts_and_citation_scope() {
     let mut f = Fixture::new();
     let project = f.create();

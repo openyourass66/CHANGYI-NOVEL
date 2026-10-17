@@ -195,3 +195,21 @@ test("analysis calls a local model and shows a proposal for review", async ({ pa
     server.close();
   }
 });
+
+test("continuation saves a manual direction and outline", async ({ page }) => {
+  await createProject(page, "方向验收小说");
+  await page.getByRole("link", { name: "续写规划" }).click();
+  await page.getByRole("button", { name: "自定义方向" }).first().click();
+  await page.locator("#direction-name").fill("追查旧案");
+  await page.locator("#direction-summary").fill("主角回到旧城，查清十年前的失踪案。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.getByRole("button", { name: "知道了" }).click();
+  await expect(page.getByText("追查旧案", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "编辑章纲" }).click();
+  await page.getByRole("button", { name: "添加一章" }).click();
+  await page.getByLabel("第 1 章标题").fill("重返旧城");
+  await page.getByLabel("第 1 章走向").fill("主角找到第一条线索。");
+  await page.getByRole("button", { name: "保存章纲" }).click();
+  await page.getByRole("button", { name: "知道了" }).click();
+  await expect(page.getByText("第 1 章 · 重返旧城")).toBeVisible();
+});
