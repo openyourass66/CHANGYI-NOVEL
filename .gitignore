@@ -9,6 +9,7 @@
 
 # Verification scripts and generated local artifacts
 /web/.verify/
+/.next/
 
 # Keep local environment and novel data private (also covered by web/.gitignore)
 /web/.env
