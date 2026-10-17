@@ -12,7 +12,12 @@ files:
   - app-icon-v2.ico
   - app-icon-v2.png
   - package.json
+  - '!**/*.map'
+  - '!**/query_engine-*.tmp*'
 asar: true
+electronLanguages:
+  - zh-CN
+  - en-US
 afterPack: ./after-pack.cjs
 asarUnpack:
   - node_modules/**

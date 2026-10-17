@@ -29,7 +29,28 @@ async function listen(server) {
   return server.address().port;
 }
 
-test("续写方向与生成链路（隔离数据库和本地模型接口）", { timeout: 120000 }, async (t) => {
+function textPdf() {
+  const stream = "BT /F1 12 Tf 50 750 Td (A traveler found an old letter beside the river and followed its clues to a quiet village.) Tj ET";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+  ];
+  let output = "%PDF-1.4\n";
+  const offsets = [];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(output));
+    output += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(output);
+  output += `xref\n0 6\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}`;
+  output += `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(output);
+}
+
+test("项目导入与续写生成链路（隔离数据库和本地模型接口）", { timeout: 120000 }, async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "changyi-continuation-"));
   const databaseUrl = `file:${path.join(root, "test.db").replaceAll("\\", "/")}`;
   const env = { ...process.env, DATABASE_URL: databaseUrl, NOVEL_DATA_DIR: root,
@@ -68,8 +89,14 @@ test("续写方向与生成链路（隔离数据库和本地模型接口）", { 
     const portProbe = createServer();
     const port = await listen(portProbe);
     await new Promise((resolve) => portProbe.close(resolve));
-    child = spawn(process.execPath, [require.resolve("next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", String(port)],
-      { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const standalone = process.env.CHANGYI_TEST_STANDALONE_DIR
+      ? path.resolve(process.env.CHANGYI_TEST_STANDALONE_DIR) : null;
+    const serverArgs = standalone ? [path.join(standalone, "server.js")]
+      : [require.resolve("next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", String(port)];
+    child = spawn(process.execPath, serverArgs, {
+      env: { ...env, HOSTNAME: "127.0.0.1", PORT: String(port) },
+      cwd: standalone ?? process.cwd(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+    });
     child.stdout.on("data", (chunk) => { logs += chunk; });
     child.stderr.on("data", (chunk) => { logs += chunk; });
     const origin = `http://127.0.0.1:${port}`;
@@ -98,6 +125,18 @@ test("续写方向与生成链路（隔离数据库和本地模型接口）", { 
         return ["done", "failed"].includes(run?.status) ? run : null;
       }, "生成任务未完成");
     };
+    await t.test("生产构建下 PDF 导入能定位工作线程并提取正文", async () => {
+      const { project } = await api("/api/projects", "POST", { name: "PDF 导入验证" });
+      const form = new FormData();
+      form.append("file", new Blob([textPdf()]), "story.pdf");
+      const response = await fetch(origin + `/api/projects/${project.id}/import`, { method: "POST", body: form });
+      const result = await response.json();
+      assert.equal(response.status, 201, JSON.stringify(result));
+      assert.ok(result.result.chapterCount > 0);
+      const exported = await fetch(origin + `/api/projects/${project.id}/export?format=txt`);
+      assert.equal(exported.status, 200);
+      assert.match(await exported.text(), /traveler/);
+    });
     await t.test("没有模型或记忆也可保存；名称自动提取且刷新后保留全文", async () => {
       const result = await api(plans, "POST", { summary });
       assert.equal(result.status, 201);

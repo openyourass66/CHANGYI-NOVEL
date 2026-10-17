@@ -2,6 +2,7 @@ import { cp, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { createRequire, isBuiltin } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isReleaseFile } from "../desktop-shell/packaging-files.cjs";
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const stageRoot = path.join(webRoot, ".desktop-build");
@@ -63,7 +64,7 @@ async function collectDependencies(from: string, output: string, roots: string[]
       recursive: true, dereference: true,
       filter: (file) => {
         const parts = path.relative(source, file).split(path.sep);
-        return !parts.includes("node_modules") && !parts.includes(".cache");
+        return !parts.includes("node_modules") && !parts.includes(".cache") && isReleaseFile(file);
       },
     });
     const pkg = await manifest(source);
@@ -86,12 +87,12 @@ await rm(stageRoot, { recursive: true, force: true });
 await mkdir(standaloneTarget, { recursive: true });
 const standaloneSource = path.join(webRoot, ".next", "standalone");
 for (const name of ["server.js", "package.json", ".next"]) {
-  await cp(path.join(standaloneSource, name), path.join(standaloneTarget, name), { recursive: true, dereference: true });
+  await cp(path.join(standaloneSource, name), path.join(standaloneTarget, name), { recursive: true, dereference: true, filter: isReleaseFile });
 }
-await cp(path.join(webRoot, ".next", "static"), path.join(standaloneTarget, ".next", "static"), { recursive: true });
+await cp(path.join(webRoot, ".next", "static"), path.join(standaloneTarget, ".next", "static"), { recursive: true, filter: isReleaseFile });
 try {
   await stat(path.join(webRoot, "public"));
-  await cp(path.join(webRoot, "public"), path.join(standaloneTarget, "public"), { recursive: true });
+  await cp(path.join(webRoot, "public"), path.join(standaloneTarget, "public"), { recursive: true, filter: isReleaseFile });
 } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
 
 const appManifest = await manifest(webRoot);
@@ -99,7 +100,7 @@ const runtimeCount = await collectDependencies(webRoot, standaloneTarget, Object
 // Prisma's generated client is a runtime artifact outside @prisma/client.
 const prismaClientRoot = await packageRoot("@prisma/client", webRoot);
 const generatedClient = path.dirname(createRequire(path.join(prismaClientRoot, "package.json")).resolve(".prisma/client/package.json"));
-await cp(generatedClient, path.join(standaloneTarget, "node_modules", ".prisma", "client"), { recursive: true, dereference: true });
+await cp(generatedClient, path.join(standaloneTarget, "node_modules", ".prisma", "client"), { recursive: true, dereference: true, filter: isReleaseFile });
 
 const cliCount = await collectDependencies(webRoot, path.join(stageRoot, "prisma-cli"), ["prisma"]);
 await mkdir(path.join(stageRoot, "prisma"), { recursive: true });

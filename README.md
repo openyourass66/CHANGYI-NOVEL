@@ -2,7 +2,7 @@
 
 长忆把长篇小说的导入、章节校对、故事记忆维护和续写整合到一个本机工作台中。原文以只读方式保存，分析结论、记忆和续写草稿单独记录，适合个人管理和延续长篇故事。
 
-当前 Windows 桌面版：**v0.1.6**。
+已发布 Windows 桌面版：**v0.1.6**；当前源码桌面版本为 **v0.1.7**，包含发行包清理及 PDF 导入兼容性修复。
 
 [下载安装包](https://github.com/openyourass66/CHANGYI-NOVEL/releases/download/v0.1.6/Changyi-Setup-0.1.6-x64.exe) · [版本说明与校验文件](https://github.com/openyourass66/CHANGYI-NOVEL/releases/tag/v0.1.6) · [所有版本](https://github.com/openyourass66/CHANGYI-NOVEL/releases)
 
@@ -136,6 +136,8 @@ pnpm desktop:dist
 
 默认输出目录为 `web/release-desktop/`，其中 `win-unpacked/长忆.exe` 可以直接运行。按版本另行指定输出目录时，产物位于对应的版本子目录，例如本机 v0.1.6 产物在 `web/release-desktop/0.1.6/`。这些构建产物不纳入 Git；已发布版本请从 Release 页面下载。
 
+发行包会排除 Source Map 调试映射和 Prisma 引擎的临时残留，仅保留简体中文及美式英语界面语言包。清理只作用于打包产物，正式运行引擎、许可证、字体和 PDF 字符映射继续保留。
+
 ### 检查与测试
 
 在 `web/` 下执行：
@@ -146,9 +148,18 @@ pnpm exec tsc --noEmit
 pnpm build
 pnpm test:continuation
 node --test desktop-shell/storage-manager.test.cjs
+node --test desktop-shell/packaging-files.test.cjs
 ```
 
-续写方向集成测试需要先完成生产构建，使用独立的临时数据库和本地模拟模型接口，不读取个人项目或调用真实模型服务。数据目录测试同样使用隔离的临时工作区。
+项目导入与续写集成测试需要先完成生产构建，使用独立的临时数据库和本地模拟模型接口，不读取个人项目或调用真实模型服务。数据目录和发行包清理测试同样使用隔离的临时目录。
+
+打包后还可对实际发行目录中的服务执行同一组集成测试，用于检查运行依赖和 PDF 工作线程定位。以下以版本子目录为例，数据库与小说文件仍使用测试临时目录：
+
+```powershell
+$env:CHANGYI_TEST_STANDALONE_DIR = (Resolve-Path 'release-desktop/0.1.7/win-unpacked/resources/standalone').Path
+pnpm test:continuation
+Remove-Item Env:CHANGYI_TEST_STANDALONE_DIR
+```
 
 ### 项目结构
 
