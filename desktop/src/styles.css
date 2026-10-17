@@ -1,0 +1,18 @@
+@import "@fontsource/geist/latin-400.css";
+@import "@fontsource/geist/latin-500.css";
+@import "@fontsource/geist/latin-600.css";
+@import "@fontsource/geist-mono/latin-400.css";
+@import "../../web/src/app/globals.css";
+@source "../../web/src/components";
+@source "./";
+
+:root {
+  --font-geist-sans: "Geist";
+  --font-geist-mono: "Geist Mono";
+}
+
+body { margin: 0; }
+
+html[data-native-desktop] .app-titlebar { padding-right: 148px; user-select: none; }
+html[data-native-desktop] .native-window-controls { display: flex; }
+.native-window-controls { display: none; }

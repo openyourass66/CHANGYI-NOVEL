@@ -14,3 +14,12 @@
 # Keep local environment and novel data private (also covered by web/.gitignore)
 /web/.env
 /web/data/
+
+# Native desktop migration build outputs and local toolchain
+/desktop/node_modules/
+/desktop/dist/
+/desktop/public/pdfjs/
+/desktop/.tools/
+/desktop/.verify/
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/schemas/

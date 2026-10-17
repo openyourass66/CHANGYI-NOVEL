@@ -3,6 +3,8 @@ import { rm } from "node:fs/promises";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { projectDir } from "@/lib/storage";
+import type { ProjectSummary } from "@/lib/projects-view";
+export type { ProjectSummary } from "@/lib/projects-view";
 
 export const projectInputSchema = z.object({
   name: z.string().trim().min(1, "请填写项目名称").max(120),
@@ -10,18 +12,6 @@ export const projectInputSchema = z.object({
   genre: z.string().trim().max(40).optional(),
 });
 export type ProjectInput = z.infer<typeof projectInputSchema>;
-
-export type ProjectSummary = {
-  id: string;
-  name: string;
-  language: string;
-  genre: string | null;
-  createdAt: string;
-  updatedAt: string;
-  chapterCount: number;
-  sourceCount: number;
-  memoryCount: number;
-};
 
 export async function listProjects(): Promise<ProjectSummary[]> {
   const rows = await prisma.novelProject.findMany({
