@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createServer } from "node:http";
 
 test.beforeEach(async ({ page }) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "changyi-native-e2e-"));
@@ -141,4 +142,44 @@ test("settings creates and edits an encrypted model profile", async ({ page }) =
   await page.getByRole("button", { name: "保存修改" }).click();
   await page.getByRole("button", { name: "知道了" }).click();
   await expect(page.getByText("本地模型", { exact: true })).toBeVisible();
+});
+
+test("analysis calls a local model and shows a proposal for review", async ({ page }) => {
+  const server = createServer((_request, response) => {
+    const content = JSON.stringify({
+      chapterNote: { summary: "主角回到故乡。", excerpt: "回到故乡" },
+      events: [], characters: [], settings: [], threads: [], glossary: [],
+    });
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 50 } }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Mock model address unavailable");
+    await createProject(page, "分析验收小说");
+    await page.locator('input[type="file"]').setInputFiles({ name: "小说.txt", mimeType: "text/plain", buffer: Buffer.from("第一章 故乡\n他回到故乡。") });
+    await page.getByRole("button", { name: "导入并解析" }).click();
+    await expect(page.getByText("已解析 1 个章节", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "知道了" }).click();
+    await page.evaluate(async (baseUrl) => {
+      const response = await fetch("/api/model-profiles", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "本地验收模型", provider: "ollama", model: "mock", baseUrl, isLocal: true }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+    }, `http://127.0.0.1:${address.port}/v1`);
+    await page.getByRole("link", { name: "理解分析" }).click();
+    await expect(page.getByRole("button", { name: "开始逐章抽取" })).toBeVisible();
+    await page.getByRole("button", { name: "开始逐章抽取" }).click();
+    await page.getByRole("button", { name: "知道了" }).click();
+    await expect(page.getByText("主角回到故乡。", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/第 1 章：回到故乡/)).toBeVisible();
+    await page.getByRole("button", { name: "采纳", exact: true }).click();
+    await page.getByRole("button", { name: "知道了" }).click();
+    await page.getByRole("link", { name: "记忆工作台" }).click();
+    await expect(page.getByText("主角回到故乡。", { exact: true })).toBeVisible();
+  } finally {
+    server.close();
+  }
 });

@@ -1,0 +1,669 @@
+use crate::{
+    database::{execute, id, now, one, query, Result},
+    model,
+};
+use rusqlite::Connection;
+use serde_json::{json, Value};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+    thread,
+};
+
+static PROCESSING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+fn processing() -> &'static Mutex<HashSet<String>> {
+    PROCESSING.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub fn route(
+    db: &mut Connection,
+    root: &Path,
+    method: &str,
+    parts: &[&str],
+    body: &Value,
+) -> Option<Result<Value>> {
+    let result = match (method, parts) {
+        ("GET", ["api", "projects", project_id, "analysis"]) => latest(db, project_id),
+        ("POST", ["api", "projects", project_id, "analysis", "preview"]) => {
+            preview(db, root, project_id, body)
+        }
+        ("POST", ["api", "projects", project_id, "analysis"]) => start(db, root, project_id, body),
+        ("GET", ["api", "analysis", run_id]) => status(db, run_id).map(|run| json!({"run":run})),
+        ("POST", ["api", "analysis", run_id, "cancel"]) => {
+            cancel(db, run_id).map(|run| json!({"run":run}))
+        }
+        ("POST", ["api", "analysis", run_id, "resume"]) => {
+            resume(db, root, run_id).map(|run| json!({"run":run}))
+        }
+        _ => return None,
+    };
+    Some(result)
+}
+
+fn latest(db: &Connection, project_id: &str) -> Result<Value> {
+    one(
+        db,
+        "SELECT id FROM NovelProject WHERE id=?",
+        &[json!(project_id)],
+    )?;
+    let recent=query(db,
+        "SELECT id FROM AnalysisRun WHERE projectId=? AND taskType='chapter-extract' ORDER BY createdAt DESC LIMIT 1",
+        &[json!(project_id)])?.into_iter().next();
+    let run = recent
+        .and_then(|row| row["id"].as_str().map(str::to_string))
+        .map(|id| status(db, &id))
+        .transpose()?;
+    Ok(json!({"run":run}))
+}
+
+fn chapter_units(db: &Connection, project_id: &str, body: &Value) -> Result<Vec<Value>> {
+    one(
+        db,
+        "SELECT id FROM NovelProject WHERE id=?",
+        &[json!(project_id)],
+    )?;
+    let chapters = query(
+        db,
+        "SELECT id,rawTitle,content FROM Chapter WHERE projectId=? ORDER BY sortOrder",
+        &[json!(project_id)],
+    )?;
+    let selected = body["chapterIds"].as_array().map(|rows| {
+        rows.iter()
+            .filter_map(Value::as_str)
+            .collect::<HashSet<_>>()
+    });
+    if let Some(selected) = &selected {
+        if selected.len() != body["chapterIds"].as_array().map_or(0, Vec::len)
+            || selected
+                .iter()
+                .any(|id| !chapters.iter().any(|row| row["id"] == **id))
+        {
+            return Err("章节范围包含重复或不属于当前项目的章节。".into());
+        }
+    }
+    let units = chapters
+        .into_iter()
+        .filter(|row| {
+            selected
+                .as_ref()
+                .is_none_or(|set| set.contains(row["id"].as_str().unwrap_or("")))
+        })
+        .collect::<Vec<_>>();
+    if units.is_empty() {
+        return Err("没有可分析的章节。".into());
+    }
+    Ok(units)
+}
+
+fn task_type(body: &Value) -> Result<&str> {
+    let task = body["taskType"].as_str().unwrap_or("chapter-extract");
+    if task != "chapter-extract" {
+        return Err("该分析任务尚未迁移。".into());
+    }
+    Ok(task)
+}
+
+fn preview(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Result<Value> {
+    let task = task_type(body)?;
+    let profile_id = body["profileId"].as_str().ok_or("请选择模型档案。")?;
+    let profile = model::resolve(db, root, profile_id)?;
+    let units = chapter_units(db, project_id, body)?;
+    let total: usize = units
+        .iter()
+        .map(|row| row["content"].as_str().unwrap_or("").encode_utf16().count())
+        .sum();
+    let provider_label = match profile.provider.as_str() {
+        "openai-compatible" => "OpenAI 兼容",
+        "anthropic" => "Anthropic",
+        "ollama" => "Ollama",
+        "lmstudio" => "LM Studio",
+        _ => &profile.provider,
+    };
+    Ok(
+        json!({"preview":{"taskType":task,"taskLabel":"逐章抽取","provider":profile.provider,
+        "providerLabel":provider_label,"model":profile.model,"isLocal":profile.is_local,
+        "unitCount":units.len(),"unitLabel":"章节","totalChars":total,
+        "estimatedPromptChars":total+units.len()*900,
+        "sampleText":units[0]["content"].as_str().unwrap_or("").chars().take(400).collect::<String>(),
+        "note":"逐章抽取：章节笔记、事件、人物（含认知）、设定、悬念与术语，每条附原文出处。"}}),
+    )
+}
+
+fn seed(total: usize) -> Value {
+    json!({"batchIndex":0,"batchTotal":total.div_ceil(4),"unitsDone":0,"unitsTotal":total,
+        "produced":0,"errors":[],"doneIds":[],"failedIds":[],"currentUnitId":null,"currentLabel":null})
+}
+
+fn start(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Result<Value> {
+    let task = task_type(body)?;
+    let profile_id = body["profileId"].as_str().ok_or("请选择模型档案。")?;
+    let profile = model::resolve(db, root, profile_id)?;
+    if !profile.is_local && body["authorized"] != true {
+        return Err("远端模型需要用户授权后才能发送原文。".into());
+    }
+    let chapters = chapter_units(db, project_id, body)?;
+    if !query(
+        db,
+        "SELECT id FROM AnalysisRun WHERE projectId=? AND status IN ('pending','running') LIMIT 1",
+        &[json!(project_id)],
+    )?
+    .is_empty()
+    {
+        return Err("该项目已有运行中的任务，请先完成或取消。".into());
+    }
+    let units = chapters
+        .iter()
+        .map(|row| json!({"id":row["id"],"label":row["rawTitle"],"chapterId":row["id"]}))
+        .collect::<Vec<_>>();
+    let stored = json!({"payload":{"chapterIds":body["chapterIds"]},"units":units});
+    let run_id = id();
+    let at = now();
+    execute(db,"INSERT INTO AnalysisRun(id,projectId,taskType,inputRangeJson,modelProfileId,promptVersion,status,usageJson,progressJson,authorizedAt,createdAt,updatedAt) VALUES(?,?,?,?,?,?,'pending','{}',?,?,?,?)",
+        &[json!(run_id),json!(project_id),json!(task),json!(stored.to_string()),json!(profile_id),
+            json!("chapter-extract@1"),json!(seed(units.len()).to_string()),
+            if profile.is_local{Value::Null}else{json!(at)},json!(at),json!(at)])?;
+    spawn(root.to_path_buf(), run_id.clone());
+    Ok(json!({"runId":run_id}))
+}
+
+fn spawn(root: PathBuf, run_id: String) {
+    let Ok(mut running) = processing().lock() else {
+        return;
+    };
+    if !running.insert(run_id.clone()) {
+        return;
+    }
+    thread::spawn(move || {
+        let result = (|| -> Result<()> {
+            let mut db = crate::database::open(&root)?;
+            process(&mut db, &root, &run_id)
+        })();
+        if let Err(error) = result {
+            if let Ok(db) = crate::database::open(&root) {
+                let _=execute(&db,"UPDATE AnalysisRun SET status='failed',error=?,finishedAt=?,updatedAt=? WHERE id=? AND status!='canceled'",
+                    &[json!(error),json!(now()),json!(now()),json!(run_id)]);
+            }
+        }
+        if let Ok(mut running) = processing().lock() {
+            running.remove(&run_id);
+        }
+    });
+}
+
+fn parse(value: &Value, field: &str) -> Value {
+    serde_json::from_str(value[field].as_str().unwrap_or("{}")).unwrap_or(json!({}))
+}
+
+fn status(db: &Connection, run_id: &str) -> Result<Value> {
+    let run = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)])?;
+    let stored = parse(&run, "inputRangeJson");
+    let units = stored["units"].as_array().cloned().unwrap_or_default();
+    let mut progress = parse(&run, "progressJson");
+    if !progress.is_object() {
+        progress = seed(units.len());
+    }
+    let done = progress["doneIds"].as_array().cloned().unwrap_or_default();
+    let failed = progress["failedIds"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    progress["unitsDone"] = json!(done.len());
+    let chapter_rows = query(
+        db,
+        "SELECT id,rawTitle,analysisStatus FROM Chapter WHERE projectId=?",
+        &[run["projectId"].clone()],
+    )?;
+    let chapters = chapter_rows
+        .into_iter()
+        .filter_map(|row| Some((row["id"].as_str()?.to_string(), row)))
+        .collect::<HashMap<_, _>>();
+    let live = run["status"] == "running"
+        && processing()
+            .lock()
+            .map(|set| set.contains(run_id))
+            .unwrap_or(false);
+    let stalled = run["status"] == "running" && !live;
+    if !live {
+        progress["currentUnitId"] = Value::Null;
+        progress["currentLabel"] = Value::Null;
+    }
+    let unit_views=units.iter().enumerate().map(|(i,unit)|{
+        let chapter_id=unit["chapterId"].as_str();
+        let chapter=chapter_id.and_then(|id|chapters.get(id));
+        let unit_id=unit["id"].as_str().unwrap_or("");
+        let unit_status=if live && progress["currentUnitId"]==unit_id {"analyzing"}
+            else if failed.iter().any(|value|value==unit_id) {"failed"}
+            else if done.iter().any(|value|value==unit_id) {"done"}
+            else {chapter.and_then(|row|row["analysisStatus"].as_str()).unwrap_or("pending")};
+        json!({"id":unit["id"],"index":i+1,"label":chapter.map(|row|&row["rawTitle"]).unwrap_or(&unit["label"]),
+            "chapterId":unit["chapterId"],"status":unit_status})
+    }).collect::<Vec<_>>();
+    Ok(
+        json!({"id":run["id"],"projectId":run["projectId"],"taskType":run["taskType"],
+        "taskLabel":"逐章抽取","unitLabel":"章","status":if stalled{"stalled"}else{run["status"].as_str().unwrap_or("failed")},
+        "progress":progress,"usage":parse(&run,"usageJson"),"error":run["error"],
+        "promptVersion":run["promptVersion"],"authorizedAt":run["authorizedAt"],
+        "createdAt":run["createdAt"],"startedAt":run["startedAt"],"finishedAt":run["finishedAt"],
+        "payload":stored["payload"],"units":unit_views}),
+    )
+}
+
+fn cancel(db: &Connection, run_id: &str) -> Result<Value> {
+    let run = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)])?;
+    let progress = parse(&run, "progressJson");
+    if let Some(chapter_id) = progress["currentUnitId"].as_str() {
+        execute(db,"UPDATE Chapter SET analysisStatus='pending' WHERE id=? AND projectId=? AND analysisStatus='analyzing'",
+            &[json!(chapter_id),run["projectId"].clone()])?;
+    }
+    execute(
+        db,
+        "UPDATE AnalysisRun SET status='canceled',canceledAt=?,finishedAt=?,updatedAt=? WHERE id=?",
+        &[json!(now()), json!(now()), json!(now()), json!(run_id)],
+    )?;
+    status(db, run_id)
+}
+
+fn resume(db: &Connection, root: &Path, run_id: &str) -> Result<Value> {
+    let run = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)])?;
+    if run["status"] == "done" || run["status"] == "canceled" {
+        return status(db, run_id);
+    }
+    if run["status"] == "failed" {
+        let mut progress = parse(&run, "progressJson");
+        let failed = progress["failedIds"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if failed.is_empty() {
+            return Err("没有可安全重试的失败章节，请重新发起任务。".into());
+        }
+        if let Some(done) = progress["doneIds"].as_array_mut() {
+            done.retain(|id| !failed.contains(id));
+        }
+        progress["failedIds"] = json!([]);
+        progress["errors"] = json!([]);
+        progress["currentUnitId"] = Value::Null;
+        progress["currentLabel"] = Value::Null;
+        execute(db,"UPDATE AnalysisRun SET status='running',error=NULL,progressJson=?,updatedAt=? WHERE id=?",
+            &[json!(progress.to_string()),json!(now()),json!(run_id)])?;
+    }
+    spawn(root.to_path_buf(), run_id.to_string());
+    status(db, run_id)
+}
+
+fn save_progress(db: &Connection, run_id: &str, progress: &Value) -> Result<()> {
+    execute(
+        db,
+        "UPDATE AnalysisRun SET progressJson=?,updatedAt=? WHERE id=?",
+        &[json!(progress.to_string()), json!(now()), json!(run_id)],
+    )?;
+    Ok(())
+}
+
+fn process(db: &mut Connection, root: &Path, run_id: &str) -> Result<()> {
+    let run = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)])?;
+    if run["status"] == "canceled" {
+        return Ok(());
+    }
+    let profile_id = run["modelProfileId"].as_str().ok_or("模型档案不存在。")?;
+    let profile = model::resolve(db, root, profile_id)?;
+    let stored = parse(&run, "inputRangeJson");
+    let units = stored["units"].as_array().cloned().unwrap_or_default();
+    let mut progress = parse(&run, "progressJson");
+    if !progress.is_object() {
+        progress = seed(units.len());
+    }
+    execute(db,"UPDATE AnalysisRun SET status='running',startedAt=COALESCE(startedAt,?),error=NULL,updatedAt=? WHERE id=?",
+        &[json!(now()),json!(now()),json!(run_id)])?;
+    let mut usage = parse(&run, "usageJson");
+    for (index, unit) in units.iter().enumerate() {
+        let state = one(
+            db,
+            "SELECT status FROM AnalysisRun WHERE id=?",
+            &[json!(run_id)],
+        )?;
+        if state["status"] == "canceled" {
+            return Ok(());
+        }
+        let unit_id = unit["id"].as_str().ok_or("任务章节无效。")?;
+        if progress["doneIds"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|value| value == unit_id))
+        {
+            continue;
+        }
+        let chapter = one(
+            db,
+            "SELECT * FROM Chapter WHERE id=? AND projectId=?",
+            &[json!(unit_id), run["projectId"].clone()],
+        )?;
+        progress["batchIndex"] = json!(index / 4 + 1);
+        progress["currentUnitId"] = json!(unit_id);
+        progress["currentLabel"] = chapter["rawTitle"].clone();
+        save_progress(db, run_id, &progress)?;
+        execute(
+            db,
+            "UPDATE Chapter SET analysisStatus='analyzing' WHERE id=?",
+            &[json!(unit_id)],
+        )?;
+        let outcome = run_chapter(db, &profile, run_id, &chapter);
+        let state = one(
+            db,
+            "SELECT status FROM AnalysisRun WHERE id=?",
+            &[json!(run_id)],
+        )?;
+        if state["status"] == "canceled" {
+            return Ok(());
+        }
+        match outcome {
+            Ok((produced, one_usage)) => {
+                progress["produced"] =
+                    json!(progress["produced"].as_u64().unwrap_or(0) + produced as u64);
+                for field in ["promptTokens", "completionTokens", "totalTokens"] {
+                    let total =
+                        usage[field].as_u64().unwrap_or(0) + one_usage[field].as_u64().unwrap_or(0);
+                    usage[field] = json!(total);
+                }
+                execute(
+                    db,
+                    "UPDATE Chapter SET analysisStatus='done' WHERE id=?",
+                    &[json!(unit_id)],
+                )?;
+            }
+            Err(error) => {
+                progress["errors"]
+                    .as_array_mut()
+                    .ok_or("任务进度损坏。")?
+                    .push(json!(format!(
+                        "《{}》：{error}",
+                        chapter["rawTitle"].as_str().unwrap_or("")
+                    )));
+                progress["failedIds"]
+                    .as_array_mut()
+                    .ok_or("任务进度损坏。")?
+                    .push(json!(unit_id));
+                execute(
+                    db,
+                    "UPDATE Chapter SET analysisStatus='failed' WHERE id=?",
+                    &[json!(unit_id)],
+                )?;
+            }
+        }
+        progress["doneIds"]
+            .as_array_mut()
+            .ok_or("任务进度损坏。")?
+            .push(json!(unit_id));
+        progress["unitsDone"] = json!(progress["doneIds"].as_array().map_or(0, Vec::len));
+        progress["currentUnitId"] = Value::Null;
+        progress["currentLabel"] = Value::Null;
+        save_progress(db, run_id, &progress)?;
+        execute(
+            db,
+            "UPDATE AnalysisRun SET usageJson=?,updatedAt=? WHERE id=?",
+            &[json!(usage.to_string()), json!(now()), json!(run_id)],
+        )?;
+    }
+    let failed = progress["failedIds"]
+        .as_array()
+        .is_some_and(|items| !items.is_empty());
+    let error = progress["errors"]
+        .as_array()
+        .filter(|items| !items.is_empty())
+        .map(|items| {
+            items
+                .iter()
+                .take(8)
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n")
+        });
+    execute(db,"UPDATE AnalysisRun SET status=?,progressJson=?,usageJson=?,error=?,finishedAt=?,updatedAt=? WHERE id=? AND status!='canceled'",
+        &[json!(if failed{"failed"}else{"done"}),json!(progress.to_string()),json!(usage.to_string()),
+            json!(error),json!(now()),json!(now()),json!(run_id)])?;
+    Ok(())
+}
+
+fn citation(chapter: &Value, excerpt: &str) -> Option<Value> {
+    let content = chapter["content"].as_str()?;
+    let byte_start = content.find(excerpt)?;
+    let start = content[..byte_start].encode_utf16().count();
+    Some(
+        json!({"chapterId":chapter["id"],"excerpt":excerpt,"startOffset":start,
+        "endOffset":start+excerpt.encode_utf16().count()}),
+    )
+}
+
+fn proposal(
+    db: &Connection,
+    run_id: &str,
+    chapter: &Value,
+    category: &str,
+    key: &str,
+    title: &str,
+    content: &str,
+    status: &str,
+    excerpts: &[String],
+) -> Result<()> {
+    if content.trim().is_empty() {
+        return Ok(());
+    }
+    let project_id = chapter["projectId"].as_str().ok_or("章节项目无效。")?;
+    let existing=query(db,"SELECT id,isUserEdited FROM MemoryEntry WHERE projectId=? AND category=? AND key=? AND isCurrent=1 ORDER BY updatedAt DESC LIMIT 1",
+        &[json!(project_id),json!(category),json!(key)])?.into_iter().next();
+    let target = existing
+        .as_ref()
+        .map(|row| row["id"].clone())
+        .unwrap_or(Value::Null);
+    let kind = if existing
+        .as_ref()
+        .is_some_and(|row| row["isUserEdited"] == true)
+    {
+        "conflict"
+    } else if existing.is_some() {
+        "update"
+    } else {
+        "add"
+    };
+    let citations = excerpts
+        .iter()
+        .filter_map(|excerpt| citation(chapter, excerpt))
+        .collect::<Vec<_>>();
+    execute(db,"INSERT INTO MemoryProposal(id,projectId,runId,chapterId,kind,category,key,title,content,status,citationsJson,targetEntryId,reason,state,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)",
+        &[json!(id()),json!(project_id),json!(run_id),chapter["id"].clone(),json!(kind),
+            json!(category),json!(key),json!(title),json!(content),json!(status),json!(json!(citations).to_string()),
+            target,json!(if kind=="conflict"{Some("目标条目已人工修改，需人工裁决。")}else{None}),json!(now()),json!(now())])?;
+    Ok(())
+}
+
+fn run_chapter(
+    db: &mut Connection,
+    profile: &model::Profile,
+    run_id: &str,
+    chapter: &Value,
+) -> Result<(usize, Value)> {
+    let system="你是一名严谨的小说文本分析师。唯一依据是章节原文。原文即正典，不得编造。每项结论必须附有逐字出现的 excerpt。人物认知区分已知、误信、未知。";
+    let prompt=format!("章节标题：{}\n请只输出 JSON：{{\"chapterNote\":{{\"summary\":string,\"excerpt\":string}},\"events\":[{{\"description\":string,\"excerpt\":string}}],\"characters\":[{{\"name\":string,\"state\":string,\"knowledge\":[{{\"infoItem\":string,\"relation\":\"known\"|\"misbelieved\"|\"unknown\",\"excerpt\":string}}],\"excerpt\":string}}],\"settings\":[{{\"name\":string,\"detail\":string,\"excerpt\":string}}],\"threads\":[{{\"title\":string,\"detail\":string,\"state\":\"open\"|\"advanced\"|\"resolved\"|\"uncertain\",\"excerpt\":string}}],\"glossary\":[{{\"term\":string,\"definition\":string,\"excerpt\":string}}]}}\n章节原文：\n———\n{}\n———",
+        chapter["rawTitle"].as_str().unwrap_or(""),chapter["content"].as_str().unwrap_or(""));
+    let (output, usage) = model::request_json(profile, system, &prompt, 4096)?;
+    if one(
+        db,
+        "SELECT status FROM AnalysisRun WHERE id=?",
+        &[json!(run_id)],
+    )?["status"]
+        == "canceled"
+    {
+        return Err("任务已取消。".into());
+    }
+    let note = &output["chapterNote"];
+    let summary = note["summary"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or("模型未生成章节笔记。")?;
+    let excerpt = note["excerpt"]
+        .as_str()
+        .filter(|s| chapter["content"].as_str().unwrap_or("").contains(s))
+        .ok_or("章节笔记缺少有效原文出处。")?;
+    let events = output["events"].as_array().cloned().unwrap_or_default();
+    let event_lines = events
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            Some(format!(
+                "{}. {}（依据：{}）",
+                i + 1,
+                item["description"].as_str()?,
+                item["excerpt"].as_str()?
+            ))
+        })
+        .collect::<Vec<_>>();
+    let mut note_content = summary.to_string();
+    if !event_lines.is_empty() {
+        note_content.push_str("\n\n");
+        note_content.push_str(&event_lines.join("\n"));
+    }
+    let mut note_excerpts = vec![excerpt.to_string()];
+    note_excerpts.extend(
+        events
+            .iter()
+            .filter_map(|item| item["excerpt"].as_str().map(str::to_string)),
+    );
+    let tx = db.transaction().map_err(|e| e.to_string())?;
+    let mut count = 0usize;
+    proposal(
+        &tx,
+        run_id,
+        chapter,
+        "chapter-note",
+        &format!("ch:{}", chapter["id"]),
+        &format!("笔记：{}", chapter["rawTitle"]),
+        &note_content,
+        "confirmed",
+        &note_excerpts,
+    )?;
+    count += 1;
+    let relation = |value: &str| match value {
+        "known" => "已知",
+        "misbelieved" => "误信",
+        "unknown" => "未知",
+        _ => "未知",
+    };
+    for item in output["characters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(40)
+    {
+        let Some(name) = item["name"].as_str().filter(|s| !s.trim().is_empty()) else {
+            continue;
+        };
+        let mut content = item["state"].as_str().unwrap_or("").trim().to_string();
+        let knowledge = item["knowledge"].as_array().cloned().unwrap_or_default();
+        if !knowledge.is_empty() {
+            content.push_str("\n\n认知：\n");
+            content.push_str(
+                &knowledge
+                    .iter()
+                    .filter_map(|row| {
+                        Some(format!(
+                            "- {}（{}）",
+                            row["infoItem"].as_str()?,
+                            relation(row["relation"].as_str().unwrap_or(""))
+                        ))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
+        }
+        if content.trim().is_empty() {
+            continue;
+        }
+        let mut excerpts = item["excerpt"]
+            .as_str()
+            .map(|s| vec![s.to_string()])
+            .unwrap_or_default();
+        excerpts.extend(
+            knowledge
+                .iter()
+                .filter_map(|row| row["excerpt"].as_str().map(str::to_string)),
+        );
+        proposal(
+            &tx,
+            run_id,
+            chapter,
+            "character",
+            name,
+            name,
+            &content,
+            "confirmed",
+            &excerpts,
+        )?;
+        count += 1;
+    }
+    for item in output["settings"].as_array().into_iter().flatten().take(40) {
+        if let (Some(name), Some(detail)) = (item["name"].as_str(), item["detail"].as_str()) {
+            proposal(
+                &tx,
+                run_id,
+                chapter,
+                "story-bible",
+                name,
+                name,
+                detail,
+                "confirmed",
+                &item["excerpt"]
+                    .as_str()
+                    .map(|s| vec![s.to_string()])
+                    .unwrap_or_default(),
+            )?;
+            count += 1;
+        }
+    }
+    for item in output["threads"].as_array().into_iter().flatten().take(40) {
+        if let (Some(title), Some(detail)) = (item["title"].as_str(), item["detail"].as_str()) {
+            let status = match item["state"].as_str() {
+                Some("advanced") => "advanced",
+                Some("resolved") => "resolved",
+                Some("uncertain") => "uncertain",
+                _ => "open",
+            };
+            proposal(
+                &tx,
+                run_id,
+                chapter,
+                "thread",
+                title,
+                title,
+                detail,
+                status,
+                &item["excerpt"]
+                    .as_str()
+                    .map(|s| vec![s.to_string()])
+                    .unwrap_or_default(),
+            )?;
+            count += 1;
+        }
+    }
+    for item in output["glossary"].as_array().into_iter().flatten().take(40) {
+        if let (Some(term), Some(definition)) = (item["term"].as_str(), item["definition"].as_str())
+        {
+            proposal(
+                &tx,
+                run_id,
+                chapter,
+                "glossary",
+                term,
+                term,
+                definition,
+                "confirmed",
+                &item["excerpt"]
+                    .as_str()
+                    .map(|s| vec![s.to_string()])
+                    .unwrap_or_default(),
+            )?;
+            count += 1;
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok((count, usage))
+}

@@ -1,6 +1,8 @@
+pub mod analysis;
 pub mod api;
 pub mod database;
 pub mod memory;
+pub mod model;
 pub mod profiles;
 pub mod proposals;
 mod restore;

@@ -10,6 +10,7 @@ import { OperationPromptHost, notify } from "@/components/operation-prompt";
 import { ProjectLibrary } from "@/components/projects/project-library";
 import { ChapterWorkspace } from "@/components/projects/chapter-workspace";
 import { MemoryWorkbench } from "@/components/projects/memory-workbench";
+import { AnalysisPanel } from "@/components/projects/analysis-panel";
 import { ProjectNav } from "@/components/projects/project-nav";
 import { ProfileManager } from "@/components/settings/profile-manager";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,30 @@ function Memory() {
     initialEntries={data.memory.entries} initialCounts={data.memory.counts} initialConflicts={data.memory.conflicts} initialKnowledge={data.knowledge}
     chapters={data.chapters.map((chapter, i) => ({ id: chapter.id, index: i + 1, title: chapter.rawTitle }))}
     focusEntryId={new URLSearchParams(location.hash.split("?")[1] ?? "").get("entry")} />;
+}
+
+type AnalysisData = Workspace & {
+  profiles: import("@/lib/ai/profiles").ProfileView[];
+  proposals: import("@/lib/ai/types").ProposalView[];
+  counts: Record<string, number>;
+  run: import("@/lib/ai/runner").RunStatusView | null;
+  totalMemory: number;
+};
+
+function Analysis() {
+  const data = useLoaderData() as AnalysisData;
+  const chapters = data.chapters.map((chapter, index) => ({
+    id: chapter.id, index: index + 1, title: chapter.rawTitle, charCount: chapter.charCount,
+  }));
+  const tasks = [{
+    type: "chapter-extract", label: "逐章抽取", scope: "chapter" as const, unitLabel: "章",
+    description: "逐章理解原文，产出章节笔记、事件、人物、设定、悬念与术语提案。",
+    requirement: null,
+  }];
+  return <AnalysisPanel key={data.project.id} projectId={data.project.id} projectName={data.project.name}
+    chapters={chapters} profiles={data.profiles} tasks={tasks} initialProposals={data.proposals}
+    initialCounts={data.counts} initialRun={data.run} taskRuns={{ "chapter-extract": data.run }}
+    totalMemory={data.totalMemory} hasMemory={data.totalMemory > 0} initialStage="chapter-extract" />;
 }
 
 function Settings() {
@@ -151,12 +176,25 @@ const memoryLoader = async ({ params }: { params: Record<string, string | undefi
   ]);
   return { ...workspace, memory, knowledge: knowledge.knowledge };
 };
+const analysisLoader = async ({ params }: { params: Record<string, string | undefined> }): Promise<AnalysisData> => {
+  const id = params.id;
+  const [workspace, profiles, proposals, latest, memory] = await Promise.all([
+    workspaceLoader({ params }),
+    api<{ profiles: AnalysisData["profiles"] }>("/api/model-profiles"),
+    api<{ proposals: AnalysisData["proposals"]; counts: Record<string, number> }>(`/api/projects/${id}/proposals`),
+    api<{ run: AnalysisData["run"] }>(`/api/projects/${id}/analysis`),
+    api<{ counts: Record<string, number> }>(`/api/projects/${id}/memory`),
+  ]);
+  return { ...workspace, profiles: profiles.profiles, proposals: proposals.proposals, counts: proposals.counts,
+    run: latest.run, totalMemory: Object.values(memory.counts).reduce((sum, count) => sum + count, 0) };
+};
 const router = createHashRouter([{
   element: <Shell />, errorElement: <ErrorPage />, children: [
     { path: "/", loader: () => api("/api/projects"), element: <Library /> },
     { path: "/settings", loader: () => api("/api/model-profiles"), element: <Settings /> },
     { path: "/projects/:id", loader: workspaceLoader, element: <Chapters /> },
     { path: "/projects/:id/memory", loader: memoryLoader, element: <Memory /> },
+    { path: "/projects/:id/analysis", loader: analysisLoader, element: <Analysis /> },
     { path: "/projects/:id/:section", loader: workspaceLoader, element: <MigrationPage /> },
   ],
 }]);

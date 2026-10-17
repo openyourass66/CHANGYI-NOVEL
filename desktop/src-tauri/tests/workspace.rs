@@ -150,6 +150,111 @@ fn proposal_review_versions_memory_and_protects_human_edits() {
 }
 
 #[test]
+fn chapter_analysis_calls_local_model_and_creates_reviewable_proposal() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut input = [0u8; 8192];
+        let count = stream.read(&mut input).unwrap();
+        assert!(String::from_utf8_lossy(&input[..count]).contains("POST /v1/chat/completions"));
+        let answer = json!({"chapterNote":{"summary":"主角回到故乡。","excerpt":"回到故乡"},"events":[],"characters":[],"settings":[],"threads":[],"glossary":[]});
+        let payload=json!({"choices":[{"message":{"content":answer.to_string()}}],"usage":{"prompt_tokens":20,"completion_tokens":30,"total_tokens":50}}).to_string();
+        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+    });
+    let mut f = Fixture::new();
+    let project = f.create();
+    f.import(&project, "他回到故乡。");
+    let profile=f.request("POST","/api/model-profiles",json!({
+        "name":"Mock 模型","provider":"ollama","model":"mock","baseUrl":format!("http://{address}/v1"),"isLocal":true
+    })).unwrap()["profile"]["id"].as_str().unwrap().to_string();
+    let request = json!({"taskType":"chapter-extract","profileId":profile});
+    let preview = f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/analysis/preview"),
+            request.clone(),
+        )
+        .unwrap();
+    assert_eq!(preview["preview"]["unitCount"], 1);
+    assert_eq!(preview["preview"]["isLocal"], true);
+    let run_id = f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/analysis"),
+            request,
+        )
+        .unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let run = f
+            .request("GET", &format!("/api/analysis/{run_id}"), Value::Null)
+            .unwrap()["run"]
+            .clone();
+        if run["status"] == "done" {
+            assert_eq!(run["progress"]["produced"], 1);
+            break;
+        }
+        if run["status"] == "failed" {
+            panic!("analysis failed: {}", run["error"]);
+        }
+        assert!(Instant::now() < deadline, "analysis timed out");
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    server.join().unwrap();
+    let listed = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/proposals"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(listed["counts"]["pending"], 1);
+    assert_eq!(
+        listed["proposals"][0]["citations"][0]["excerpt"],
+        "回到故乡"
+    );
+    let cloud = f
+        .request(
+            "POST",
+            "/api/model-profiles",
+            json!({
+                "name":"远端测试","provider":"openai-compatible","model":"mock",
+                "baseUrl":format!("http://{address}/v1"),"apiKey":"synthetic-only","isLocal":false
+            }),
+        )
+        .unwrap()["profile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let preview = f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/analysis/preview"),
+            json!({"taskType":"chapter-extract","profileId":cloud}),
+        )
+        .unwrap();
+    assert_eq!(preview["preview"]["isLocal"], false);
+    assert!(f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/analysis"),
+            json!({"taskType":"chapter-extract","profileId":cloud})
+        )
+        .unwrap_err()
+        .contains("授权"));
+}
+
+#[test]
 fn memory_versions_restore_conflicts_and_citation_scope() {
     let mut f = Fixture::new();
     let project = f.create();
