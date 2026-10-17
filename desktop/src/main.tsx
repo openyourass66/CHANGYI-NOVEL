@@ -85,6 +85,7 @@ type AnalysisData = Workspace & {
   proposals: import("@/lib/ai/types").ProposalView[];
   counts: Record<string, number>;
   run: import("@/lib/ai/runner").RunStatusView | null;
+  taskRuns: Record<string, import("@/lib/ai/runner").RunStatusView | null>;
   totalMemory: number;
 };
 
@@ -93,15 +94,19 @@ function Analysis() {
   const chapters = data.chapters.map((chapter, index) => ({
     id: chapter.id, index: index + 1, title: chapter.rawTitle, charCount: chapter.charCount,
   }));
-  const tasks = [{
+  const tasks: import("@/lib/ai/tasks/registry").TaskSummary[] = [{
     type: "chapter-extract", label: "逐章抽取", scope: "chapter" as const, unitLabel: "章",
     description: "逐章理解原文，产出章节笔记、事件、人物、设定、悬念与术语提案。",
     requirement: null,
+  },{
+    type: "book-synthesis", label: "全书统合", scope: "project", unitLabel: "项",
+    description: "在已有记忆之上统合全书，产出概要、结局状态、未决线索与续写约束。",
+    requirement: "memory",
   }];
   return <AnalysisPanel key={data.project.id} projectId={data.project.id} projectName={data.project.name}
     chapters={chapters} profiles={data.profiles} tasks={tasks} initialProposals={data.proposals}
-    initialCounts={data.counts} initialRun={data.run} taskRuns={{ "chapter-extract": data.run }}
-    totalMemory={data.totalMemory} hasMemory={data.totalMemory > 0} initialStage="chapter-extract" />;
+    initialCounts={data.counts} initialRun={data.run} taskRuns={data.taskRuns}
+    totalMemory={data.totalMemory} hasMemory={data.totalMemory > 0} initialStage={data.run?.taskType ?? null} />;
 }
 
 function Settings() {
@@ -182,11 +187,12 @@ const analysisLoader = async ({ params }: { params: Record<string, string | unde
     workspaceLoader({ params }),
     api<{ profiles: AnalysisData["profiles"] }>("/api/model-profiles"),
     api<{ proposals: AnalysisData["proposals"]; counts: Record<string, number> }>(`/api/projects/${id}/proposals`),
-    api<{ run: AnalysisData["run"] }>(`/api/projects/${id}/analysis`),
+    api<{ run: AnalysisData["run"]; taskRuns: AnalysisData["taskRuns"] }>(`/api/projects/${id}/analysis`),
     api<{ counts: Record<string, number> }>(`/api/projects/${id}/memory`),
   ]);
   return { ...workspace, profiles: profiles.profiles, proposals: proposals.proposals, counts: proposals.counts,
-    run: latest.run, totalMemory: Object.values(memory.counts).reduce((sum, count) => sum + count, 0) };
+    run: latest.run, taskRuns: latest.taskRuns,
+    totalMemory: Object.values(memory.counts).reduce((sum, count) => sum + count, 0) };
 };
 const router = createHashRouter([{
   element: <Shell />, errorElement: <ErrorPage />, children: [

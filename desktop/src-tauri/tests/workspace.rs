@@ -255,6 +255,96 @@ fn chapter_analysis_calls_local_model_and_creates_reviewable_proposal() {
 }
 
 #[test]
+fn book_synthesis_requires_memory_and_creates_inferred_proposals() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut input = [0u8; 8192];
+        let _ = stream.read(&mut input);
+        let content=json!({"overview":"主角已归乡。","endingState":"主角抵达故乡。","unresolved":[{"title":"身份","detail":"尚未公开"}],
+            "constraints":["故乡位于北方"],"choices":[],"ambiguities":[]}).to_string();
+        let payload =
+            json!({"choices":[{"message":{"content":content}}],"usage":{"total_tokens":60}})
+                .to_string();
+        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+    });
+    let mut f = Fixture::new();
+    let project = f.create();
+    f.import(&project, "主角回到北方故乡。");
+    let profile = f
+        .request(
+            "POST",
+            "/api/model-profiles",
+            json!({"name":"Mock","provider":"ollama",
+        "model":"mock","baseUrl":format!("http://{address}/v1"),"isLocal":true}),
+        )
+        .unwrap()["profile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let args = json!({"taskType":"book-synthesis","profileId":profile});
+    assert!(f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/analysis/preview"),
+            args.clone()
+        )
+        .unwrap_err()
+        .contains("记忆"));
+    f.request("POST",&format!("/api/projects/{project}/memory"),
+        json!({"category":"character","key":"hero","title":"主角","content":"已回到故乡","status":"confirmed","citations":[]})).unwrap();
+    let preview = f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/analysis/preview"),
+            args.clone(),
+        )
+        .unwrap();
+    assert_eq!(preview["preview"]["unitCount"], 1);
+    assert_eq!(preview["preview"]["taskLabel"], "全书统合");
+    let run_id = f
+        .request("POST", &format!("/api/projects/{project}/analysis"), args)
+        .unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let run = f
+            .request("GET", &format!("/api/analysis/{run_id}"), Value::Null)
+            .unwrap()["run"]
+            .clone();
+        if run["status"] == "done" {
+            assert_eq!(run["progress"]["produced"], 4);
+            break;
+        }
+        if run["status"] == "failed" {
+            panic!("synthesis failed: {}", run["error"]);
+        }
+        assert!(Instant::now() < deadline, "synthesis timed out");
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    server.join().unwrap();
+    let listed = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/proposals"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(listed["counts"]["pending"], 4);
+    assert!(listed["proposals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|row| row["status"] == "inferred"));
+}
+
+#[test]
 fn memory_versions_restore_conflicts_and_citation_scope() {
     let mut f = Fixture::new();
     let project = f.create();

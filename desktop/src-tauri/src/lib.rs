@@ -1,5 +1,6 @@
 pub mod analysis;
 pub mod api;
+pub mod context;
 pub mod database;
 pub mod memory;
 pub mod model;

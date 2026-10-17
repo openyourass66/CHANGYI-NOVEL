@@ -145,11 +145,17 @@ test("settings creates and edits an encrypted model profile", async ({ page }) =
 });
 
 test("analysis calls a local model and shows a proposal for review", async ({ page }) => {
+  let requests = 0;
   const server = createServer((_request, response) => {
-    const content = JSON.stringify({
-      chapterNote: { summary: "主角回到故乡。", excerpt: "回到故乡" },
-      events: [], characters: [], settings: [], threads: [], glossary: [],
-    });
+    const content = requests++ === 0
+      ? JSON.stringify({
+        chapterNote: { summary: "主角回到故乡。", excerpt: "回到故乡" },
+        events: [], characters: [], settings: [], threads: [], glossary: [],
+      })
+      : JSON.stringify({
+        overview: "主角已归乡。", endingState: "主角抵达故乡。",
+        unresolved: [], constraints: ["故乡位于北方"], choices: [], ambiguities: [],
+      });
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 50 } }));
   });
@@ -179,6 +185,12 @@ test("analysis calls a local model and shows a proposal for review", async ({ pa
     await page.getByRole("button", { name: "知道了" }).click();
     await page.getByRole("link", { name: "记忆工作台" }).click();
     await expect(page.getByText("主角回到故乡。", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "理解分析" }).click();
+    await page.getByRole("button", { name: /全书统合/ }).first().click();
+    await page.getByRole("button", { name: "开始全书统合" }).click();
+    await page.getByRole("button", { name: "知道了" }).click();
+    await expect(page.getByText("主角已归乡。", { exact: true })).toBeVisible({ timeout: 15_000 });
+    expect(requests).toBe(2);
   } finally {
     server.close();
   }
