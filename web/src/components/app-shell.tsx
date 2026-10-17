@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { Suspense } from "react";
 import { NavLinks } from "@/components/nav-links";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,9 +10,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <TooltipProvider delayDuration={300}>
       <div className="flex min-h-dvh flex-col">
         <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur-sm">
-          <div className="flex h-14 items-center gap-4 px-4 lg:px-6">
+          <div className="app-titlebar flex h-14 items-center gap-4 px-4 lg:px-6">
             <Link
               href="/"
+              aria-label="长忆，返回项目库"
               className="flex items-center gap-2 rounded-md px-1 font-semibold tracking-tight focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               <Image
@@ -19,12 +21,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 width={28}
                 height={28}
                 alt=""
+                loading="eager"
                 className="size-7 shrink-0"
               />
               <span>长忆</span>
             </Link>
             <div className="h-5 w-px bg-border" aria-hidden />
-            <NavLinks />
+            <Suspense fallback={<div className="h-10 w-52" aria-hidden />}>
+              <NavLinks />
+            </Suspense>
             <div className="ml-auto flex items-center gap-1">
               <ThemeToggle />
             </div>

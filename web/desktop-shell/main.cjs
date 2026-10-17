@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const { appendFileSync, mkdirSync } = require("node:fs");
 const { mkdir, writeFile } = require("node:fs/promises");
@@ -6,6 +6,11 @@ const { pathToFileURL } = require("node:url");
 const { StorageManager } = require("./storage-manager.cjs");
 const net = require("node:net");
 const path = require("node:path");
+
+const titleBarThemes = {
+  light: { color: "#fdfcf9", symbolColor: "#29251f" },
+  dark: { color: "#14110e", symbolColor: "#ece9e4" },
+};
 
 app.setName("Changyi");
 if (process.env.CHANGYI_USER_DATA_DIR) {
@@ -292,6 +297,20 @@ if (!app.requestSingleInstanceLock()) {
     });
   }
 
+  function registerWindowHandlers() {
+    if (process.platform !== "win32") return;
+    const startupPages = ["setup.html", "splash.html"].map((file) => pathToFileURL(path.join(__dirname, file)).href);
+    ipcMain.on("window:theme", (event, theme) => {
+      if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents ||
+          event.senderFrame !== mainWindow.webContents.mainFrame || !Object.hasOwn(titleBarThemes, theme)) return;
+      const url = event.senderFrame?.url;
+      try {
+        if (!startupPages.includes(url) && (!workspaceOrigin || new URL(url).origin !== workspaceOrigin)) return;
+      } catch { return; }
+      mainWindow.setTitleBarOverlay({ ...titleBarThemes[theme], height: 56 });
+    });
+  }
+
   app.whenReady().then(async () => {
     log(`app: start ${app.getVersion()} ${process.execPath}`);
     mainWindow = new BrowserWindow({
@@ -304,9 +323,14 @@ if (!app.requestSingleInstanceLock()) {
       icon: path.join(__dirname, "app-icon-v2.ico"),
       backgroundColor: "#f8f9fc",
       autoHideMenuBar: true,
+      ...(process.platform === "win32" ? {
+        titleBarStyle: "hidden",
+        titleBarOverlay: { ...titleBarThemes[nativeTheme.shouldUseDarkColors ? "dark" : "light"], height: 56 },
+      } : {}),
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, "preload.cjs") },
     });
     mainWindow.on("closed", () => { mainWindow = undefined; });
+    registerWindowHandlers();
     await mainWindow.loadFile(path.join(__dirname, "splash.html"));
 
     try {

@@ -6,8 +6,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
   <title>选择数据目录 · 长忆</title>
   <style>
-    :root { color-scheme:light dark; font:15px/1.65 'Segoe UI','Microsoft YaHei',sans-serif; background:#fbfaf7; color:#25231f; }
+    :root { color-scheme:light dark; font:15px/1.65 'Segoe UI','Microsoft YaHei',sans-serif; background:#fdfcf9; color:#25231f; }
     * { box-sizing:border-box; } body { margin:0; min-height:100dvh; display:grid; place-items:center; padding:32px 24px; } main { width:100%; max-width:640px; }
+    .window-drag { display:none; } html[data-desktop] .window-drag { display:block; position:fixed; inset:0 0 auto; height:56px; -webkit-app-region:drag; }
     .brand { display:flex; align-items:center; gap:10px; font-weight:650; margin-bottom:32px; } .brand img { width:40px; height:40px; }
     h1 { font-size:28px; line-height:1.4; margin:0 0 10px; } p { color:#716b61; margin:0; }
     section { border:1px solid #e4e0d8; border-radius:14px; background:#fff; padding:28px; margin-top:24px; box-shadow:0 2px 8px #25231f04; }
@@ -19,10 +20,10 @@
     .hint { font-size:13px; margin-top:12px; } .footer { display:flex; justify-content:flex-end; margin-top:24px; padding-top:20px; border-top:1px solid #e4e0d8; }
     #error { color:#b32727; margin-top:12px; } #error:empty,#status:empty { display:none; } #status { margin-top:12px; }
     @media(max-width:480px) { body { padding:24px 16px; } section { padding:20px; } h1 { font-size:24px; } .row { flex-direction:column; } .footer button { width:100%; } }
-    @media(prefers-color-scheme:dark) { :root { background:#191918; color:#eeeae1; } section,button { background:#242422; border-color:#44413b; } p { color:#b4ada1; } input[type=text] { border-color:#575148; } .footer { border-color:#44413b; } button:hover:enabled { background:#33332e; } #error { color:#ff9f95; } }
+    @media(prefers-color-scheme:dark) { :root { background:#14110e; color:#eeeae1; } section,button { background:#242422; border-color:#44413b; } p { color:#b4ada1; } input[type=text] { border-color:#575148; } .footer { border-color:#44413b; } button:hover:enabled { background:#33332e; } #error { color:#ff9f95; } }
   </style>
 </head>
-<body><main>
+<body><div class="window-drag" aria-hidden="true"></div><main>
   <div class="brand"><img src="./app-icon-v2.png" width="40" height="40" alt="" />长忆小说工作台</div>
   <h1>选择数据保存位置</h1>
   <p>为小说项目、原文和模型配置选择一个文件夹。</p>

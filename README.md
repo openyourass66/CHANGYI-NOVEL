@@ -66,6 +66,8 @@ pnpm desktop:dist
 
 桌面程序、安装快捷方式、启动页、数据目录设置页、应用导航栏和浏览器标签页统一使用深绿色书页图标。
 
+Windows 标题栏与应用导航合并显示，仅保留一组图标和名称；顶部空白区域支持拖动、双击最大化，右侧保留系统窗口按钮。
+
 免安装运行可打开 `web/release-desktop/win-unpacked/长忆.exe`。所选目录记录在 `%APPDATA%\Changyi\app-config.json`，启动诊断保存在 `%APPDATA%\Changyi\logs\startup.log`。旧 Web 项目的模型密钥迁移需要保留原 `web/.env`，迁移程序会在原数据目录的上一级读取它并校验加密配置。
 
 常用检查命令（在 `web/` 目录运行）：
