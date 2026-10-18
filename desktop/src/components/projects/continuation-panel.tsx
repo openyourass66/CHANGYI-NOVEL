@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -52,12 +53,12 @@ import type { TaskSummary } from "@/lib/ai/tasks/registry";
 import { toneClass } from "@/lib/domain";
 import { REQUIREMENT_HINT, requirementMet } from "@/lib/ai/requirements";
 import { stageMetaOf, stageStatusOf } from "@/lib/ai/progress-view";
-import { TaskWorkspace } from "./task-workspace";
+import { ProjectNav } from "@/components/projects/project-nav";
 import { CloudAuthorizeDialog } from "@/components/projects/cloud-authorize-dialog";
 import { ContinuationResults } from "@/components/projects/continuation-results";
 import { DraftEditor } from "@/components/projects/draft-editor";
 import { DirectionEditor } from "@/components/projects/direction-editor";
-import { type Stage } from "@/components/projects/stage-rail";
+import { StageRail, type Stage } from "@/components/projects/stage-rail";
 import { RunStatusPanel } from "@/components/projects/run-status";
 import { useAnalysisRun } from "@/components/projects/use-analysis-run";
 
@@ -419,10 +420,26 @@ export function ContinuationPanel({
       : needsPlan && !hasMemory ? REQUIREMENT_HINT.memory : activeStage?.hint ?? null;
 
   return (
-    <TaskWorkspace projectId={projectId} projectName={projectName} section="续写规划" description="续写规划 · 从故事方向到成章，逐步完成创作。" stages={stages} taskType={taskType} onSelect={setTaskType} running={runActive} modelName={profiles.find((p) => p.id === profileId)?.name} configuration={
+    <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 lg:px-6">
+      <ProjectNav projectId={projectId} />
+      <header className="space-y-1.5">
+        <h1 className="text-2xl font-semibold tracking-tight">{projectName}</h1>
+        <p className="text-sm text-muted-foreground">
+          {onAutoContinue ? "配置模型和章数后，选定方向即可自动完成章纲、正文、检查与记忆提取。已有章纲和正文会保留。" : "确定续写方向 → 排章纲 → 写草稿 → 核对并提取记忆变化。方向可以自己填写，也可以由 AI 生成。"}
+        </p>
+      </header>
+
+      {/* 步骤轨 + 当前步骤配置 */}
       <Card>
         <CardContent className="space-y-4 py-5">
+          <StageRail
+            stages={stages}
+            activeKey={taskType}
+            onSelect={setTaskType}
+            disabled={runActive}
+          />
 
+          <Separator />
 
           {taskType === "direction" && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-4">
@@ -553,7 +570,6 @@ export function ContinuationPanel({
           </div>
         </CardContent>
       </Card>
-      }>
 
       {/* 运行状态（常驻） */}
       <RunStatusPanel
@@ -947,7 +963,7 @@ export function ContinuationPanel({
               }
               setEditing(null);
               setTaskType("outline");
-              document.querySelector('[aria-label="续写规划内容"]')?.scrollTo({ top: 0, behavior: "instant" });
+              window.scrollTo({ top: 0, behavior: "smooth" });
             }
             notify.success(goToOutline ? "方向已保存并选定，请确认章纲配置后开始生成。" : "续写方向已保存");
           }} />
@@ -979,6 +995,6 @@ export function ContinuationPanel({
         onOpenChange={setAuthOpen}
         onConfirm={() => void confirmAuthorize()}
       />
-    </TaskWorkspace>
+    </div>
   );
 }

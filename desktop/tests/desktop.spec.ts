@@ -41,7 +41,7 @@ test.beforeEach(async ({ page }) => {
 async function createProject(page: import("@playwright/test").Page, name: string) {
   await page.goto("/");
   await page.getByRole("button", { name: "新建项目", exact: true }).first().click();
-  await page.getByRole("dialog").getByLabel("项目名称").fill(name);
+  await page.getByLabel("项目名称").fill(name);
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await page.getByRole("button", { name: "知道了", exact: true }).click();
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
@@ -138,10 +138,8 @@ test("memory workbench saves revisions, knowledge, and imported notes", async ({
 test("settings creates and edits an encrypted model profile", async ({ page }) => {
   await page.goto("/#/settings");
   await expect(page.getByText("还没有模型档案")).toBeVisible();
-  await page.getByRole("button", { name: "数据与备份", exact: true }).click();
   await expect(page.getByText("完整备份", { exact: true })).toBeVisible();
   await expect(page.getByText(/完整工作区保留项目、独立作品库/)).toBeVisible();
-  await page.getByRole("button", { name: "模型配置", exact: true }).click();
   await page.getByRole("button", { name: "新增档案" }).first().click();
   await page.locator("#pf-name").fill("本地测试");
   await page.locator("#pf-provider").click();
@@ -191,7 +189,6 @@ test("analysis calls a local model and shows a proposal for review", async ({ pa
       if (!response.ok) throw new Error(await response.text());
     }, `http://127.0.0.1:${address.port}/v1`);
     await page.getByRole("link", { name: "设置", exact: true }).click();
-    await page.getByRole("button", { name: "自动化", exact: true }).click();
     await page.getByLabel("自动全部采纳分析记忆").uncheck();
     await page.getByLabel("分析后自动统合全书").uncheck();
     await expect(page.getByText("整项完成或需要选择时播放提醒", { exact: true })).toHaveCount(0);
@@ -565,87 +562,4 @@ test("automatic continuation survives navigation, reminds once, and opens a read
     await page.getByRole("link", { name: "记忆工作台", exact: true }).click();
     await expect(page.getByText("主角已与同伴重逢。", { exact: true })).toBeVisible();
   } finally { server.close(); }
-});
-
-test("unified layout keeps memory tools fixed and restores list positions", async ({ page }) => {
-  test.setTimeout(90_000);
-  await page.setViewportSize({ width: 1440, height: 960 });
-  await createProject(page, "云中剑 · 布局验收");
-  const id = await page.evaluate(() => location.hash.match(/projects\/([^/?]+)/)![1]);
-  const text = Array.from({ length: 20 }, (_, i) => `第${i + 1}章 故事${i + 1}\n${"林舟沿着山路前行，记起山门里尚未解开的旧约。".repeat(100)}`).join("\n\n");
-  await page.locator('input[type="file"]').setInputFiles({ name: "云中剑.txt", mimeType: "text/plain", buffer: Buffer.from(text) });
-  await page.getByRole("button", { name: "导入并解析", exact: true }).click();
-  await page.getByRole("button", { name: "知道了", exact: true }).click();
-  const chapter = page.locator(".chapter-text-scroll");
-  await expect.poll(() => chapter.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
-  await chapter.evaluate((el) => { el.scrollTop = 600; });
-  const chapterList = page.getByRole("list", { name: "章节列表", exact: true });
-  await chapterList.getByRole("button").nth(1).click();
-  await expect(page.getByRole("region", { name: "第2章 故事2 正文（只读）", exact: true })).toBeVisible();
-  await expect.poll(() => chapter.evaluate((el) => el.scrollTop)).toBe(0);
-  await chapterList.getByRole("button").nth(0).click();
-  await expect.poll(() => chapter.evaluate((el) => el.scrollTop)).toBe(600);
-  await expect(page.getByRole("button", { name: "重命名章节", exact: true })).toBeInViewport();
-  await page.screenshot({ path: ".verify/layout-chapters.png" });
-  await page.evaluate(async (id) => {
-    for (let i = 0; i < 48; i++) {
-      const response = await fetch(`/api/projects/${id}/memory`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category: i % 2 ? "character" : "story-bible", key: `layout-${i}`, title: `布局条目 ${i}`, content: "人物与旧约分别记录，列表滚动时搜索、分类和按钮保持可见。".repeat(3), status: "confirmed", citations: [] }) });
-      if (!response.ok) throw new Error(await response.text());
-    }
-  }, id);
-  await page.getByRole("link", { name: "记忆工作台", exact: true }).click();
-  const list = page.getByRole("region", { name: "记忆条目列表", exact: true });
-  await expect(list.locator("li")).toHaveCount(48);
-  const search = page.getByLabel("搜索记忆条目", { exact: true });
-  const top = await search.evaluate((el) => el.getBoundingClientRect().top);
-  await list.evaluate((el) => { el.scrollTop = 900; });
-  await expect(page.getByRole("button", { name: "新建条目", exact: true })).toBeInViewport();
-  expect(await search.evaluate((el) => el.getBoundingClientRect().top)).toBe(top);
-  await page.screenshot({ path: ".verify/layout-memory.png" });
-  await list.locator("button").nth(10).scrollIntoViewIfNeeded();
-  const position = await list.evaluate((el) => el.scrollTop);
-  await list.locator("button").nth(10).click();
-  await page.getByRole("button", { name: "取消", exact: true }).click();
-  expect(await list.evaluate((el) => el.scrollTop)).toBe(position);
-  await page.getByRole("button", { name: "人物 24", exact: true }).click();
-  await expect(list.locator("li")).toHaveCount(24);
-  await list.evaluate((el) => { el.scrollTop = 500; });
-  await page.getByRole("button", { name: "全部 48", exact: true }).click();
-  await expect(list.locator("li")).toHaveCount(48);
-  await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(position);
-  await search.fill("找不到的记忆");
-  await expect(list).toContainText("没有匹配的记忆条目");
-  await search.fill("");
-  await expect(list.locator("li")).toHaveCount(48);
-  await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(position);
-  for (const label of ["理解分析", "续写规划"]) {
-    await page.getByRole("link", { name: label, exact: true }).click();
-    await page.getByRole("region", { name: `${label}内容`, exact: true }).evaluate((el) => { el.scrollTop = el.scrollHeight; });
-    await expect(page.getByRole("button", { name: "配置任务", exact: true })).toBeInViewport();
-    await expect(page.locator('[aria-current="step"]')).toBeInViewport();
-    await page.screenshot({ path: `.verify/layout-${label === "理解分析" ? "analysis" : "continuation"}.png` });
-  }
-  await page.getByRole("link", { name: "记忆工作台", exact: true }).click();
-  await page.setViewportSize({ width: 860, height: 600 });
-  await expect(page.getByRole("button", { name: "新建条目", exact: true })).toBeInViewport();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true);
-  expect(await list.evaluate((el) => el.clientHeight)).toBeGreaterThan(120);
-  await page.getByRole("button", { name: "切换主题", exact: true }).click();
-  await page.getByRole("menuitem", { name: "深色", exact: true }).click();
-  await expect(page.locator("html")).toHaveClass(/dark/);
-  await expect(page.getByRole("menu")).toHaveCount(0);
-  await page.screenshot({ path: ".verify/layout-memory-small-dark.png" });
-  await page.setViewportSize({ width: 1440, height: 960 });
-  await page.getByRole("button", { name: "切换主题", exact: true }).click();
-  await page.getByRole("menuitem", { name: "浅色", exact: true }).click();
-  await page.getByRole("link", { name: "设置", exact: true }).click();
-  await page.screenshot({ path: ".verify/layout-settings.png" });
-  await page.getByRole("button", { name: "外观", exact: true }).click();
-  await page.getByRole("button", { name: "深色", exact: true }).click();
-  await expect(page.locator("html")).toHaveClass(/dark/);
-  await page.getByRole("button", { name: "浅色", exact: true }).click();
-  await page.goto("/");
-  await page.screenshot({ path: ".verify/layout-library.png" });
-  await page.getByLabel("搜索项目名称", { exact: true }).fill("不存在的项目");
-  await expect(page.getByText("没有匹配的项目。", { exact: true })).toBeVisible();
 });

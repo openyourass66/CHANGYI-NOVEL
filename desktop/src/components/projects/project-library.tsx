@@ -1,4 +1,4 @@
-import { PageFrame, ScrollRegion, SearchField } from "@/components/page-frame";
+"use client";
 
 import { useRef, useState, useTransition } from "react";
 import Link from "@/compat/link";
@@ -6,6 +6,9 @@ import { useRouter } from "@/compat/navigation";
 import { notify } from "@/components/operation-prompt";
 import {
   BookOpen,
+  Clock,
+  FileText,
+  Layers,
   MoreHorizontal,
   Plus,
   Trash2,
@@ -52,8 +55,6 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [items, setItems] = useState(projects);
-  const [query, setQuery] = useState("");
-  const visibleItems = items.filter((item) => `${item.name} ${item.genre ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()));
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [genre, setGenre] = useState("");
@@ -130,7 +131,15 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
   }
 
   return (
-    <PageFrame title="项目库" description="从原文出发，让故事继续生长。" actions={<>
+    <div className="mx-auto w-full max-w-6xl space-y-6 px-4 py-8 lg:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">项目库</h1>
+          <p className="text-sm text-muted-foreground">
+            导入原文、维护故事记忆，并基于选定方向续写。
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             onClick={() => backupInputRef.current?.click()}
@@ -142,8 +151,10 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
           <Button onClick={() => setOpen(true)}>
             <Plus className="size-4" />
             新建项目
-          </Button></>} toolbar={<><SearchField label="搜索项目名称" value={query} onChange={setQuery} /><span className="text-xs text-muted-foreground">全部项目 {items.length}</span></>}>
-      <ScrollRegion label="项目列表" positionKey="project-library">
+          </Button>
+        </div>
+      </div>
+
       <input
         ref={backupInputRef}
         type="file"
@@ -173,12 +184,11 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
           </CardContent>
         </Card>
       ) : (
-        <ul className="collection-grid">
-          {visibleItems.map((p) => (
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((p) => (
             <li key={p.id}>
               <Card className="relative h-full transition-colors duration-200 hover:border-primary/40">
                 <CardHeader className="pb-3">
-                  <div className="project-card-icon"><BookOpen className="size-5" aria-hidden /></div>
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-base">
                       <Link
@@ -218,8 +228,20 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
                   )}
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm text-muted-foreground">
-                  <div className="project-summary"><div><b>{p.chapterCount}</b><span>原文章节</span></div><div><b>{p.sourceCount}</b><span>原文文档</span></div><div><b>{p.memoryCount}</b><span>故事记忆</span></div></div>
-                  <div className="project-summary-footer"><span>更新于 {dateFmt.format(new Date(p.updatedAt))}</span><span className="text-primary">进入项目 →</span></div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    <span className="flex items-center gap-1.5">
+                      <Layers className="size-3.5" aria-hidden />
+                      {p.chapterCount} 章
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <FileText className="size-3.5" aria-hidden />
+                      {p.sourceCount} 份原文
+                    </span>
+                  </div>
+                  <p className="flex items-center gap-1.5 text-xs">
+                    <Clock className="size-3.5" aria-hidden />
+                    更新于 {dateFmt.format(new Date(p.updatedAt))}
+                  </p>
                 </CardContent>
               </Card>
             </li>
@@ -227,8 +249,6 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
         </ul>
       )}
 
-      {items.length > 0 && visibleItems.length === 0 && <p className="py-12 text-center text-sm text-muted-foreground">没有匹配的项目。</p>}
-      </ScrollRegion>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
@@ -283,6 +303,6 @@ export function ProjectLibrary({ projects }: { projects: ProjectSummary[] }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </PageFrame>
+    </div>
   );
 }

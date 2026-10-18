@@ -15,7 +15,7 @@ export function ProjectNav({ projectId }: { projectId: string }) {
   ];
 
   return (
-    <nav aria-label="项目导航" className="project-navigation">
+    <nav aria-label="项目导航" className="flex items-center gap-1">
       {items.map((item) => {
         const active = item.exact
           ? pathname === item.href
@@ -29,8 +29,8 @@ export function ProjectNav({ projectId }: { projectId: string }) {
               "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150",
               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
               active
-                ? "project-tab-active"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-accent font-medium text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
             <item.icon className="size-4" aria-hidden />

@@ -1,5 +1,3 @@
-import { useTheme } from "next-themes";
-import { PageFrame, ScrollRegion } from "@/components/page-frame";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createHashRouter, RouterProvider, Navigate, Outlet, useLoaderData, useRevalidator, useRouteError, Link } from "react-router-dom";
@@ -163,9 +161,6 @@ function Continuation() {
 }
 
 function Settings() {
-  const [section, setSection] = useState("models");
-  const { theme, setTheme } = useTheme();
-  const sections = [{ id: "models", label: "模型配置" }, { id: "automation", label: "自动化" }, { id: "storage", label: "数据与备份" }, { id: "appearance", label: "外观" }];
   const profiles = useLoaderData() as { profiles: import("@/lib/ai/profiles").ProfileView[]; encryptionReady: boolean; keyError?: string };
   const [key, setKey] = useState("");
   const [restoring, setRestoring] = useState(false);
@@ -180,27 +175,24 @@ function Settings() {
     } catch (error) { notify.error(String(error)); }
     finally { setRestoring(false); }
   }
-  return <PageFrame title="设置" description="让工具适合你的创作习惯。" toolbar={<span className="text-sm text-muted-foreground">工作区配置与偏好</span>}>
-    <div className="workspace-split">
-      <aside className="workspace-sidebar settings-nav" aria-label="设置分类"><h2 className="workspace-sidebar-heading">设置分类</h2>{sections.map((item) => <button key={item.id} aria-current={section === item.id ? "page" : undefined} onClick={() => setSection(item.id)}>{item.label}</button>)}</aside>
-      <section className="workspace-panel"><div className="workspace-panel-heading"><h2>{sections.find((item) => item.id === section)?.label}</h2></div>
-      <ScrollRegion label="设置内容" className="settings-content" positionKey={`settings:${section}`}>
+  return <div className="mx-auto max-w-4xl space-y-6 px-4 py-8 lg:px-6">
+    <h1 className="text-2xl font-semibold tracking-tight">设置</h1>
     {!profiles.encryptionReady && <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><KeyRound className="size-4" />恢复工作区主密钥</CardTitle>
       <CardDescription>{profiles.keyError ?? "此工作区需要原主密钥才能读取模型档案。"}</CardDescription></CardHeader>
       <CardContent className="flex flex-col gap-3 sm:flex-row"><input type="password" value={key} onChange={(event) => setKey(event.target.value)}
         autoComplete="off" aria-label="工作区主密钥" placeholder="原 .env 中的 64 位十六进制主密钥" className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm" />
         <Button disabled={restoring || key.trim().length !== 64} onClick={() => void restoreKey()}>{restoring ? "验证中…" : "验证并恢复"}</Button></CardContent></Card>}
-    {section === "models" && <ProfileManager profiles={profiles.profiles} encryptionReady={profiles.encryptionReady} />}
-    {section === "automation" && <AutomationSettings />}
-    {section === "storage" && <NativeStorageSettings/>}
-    {section === "appearance" && <Card><CardHeader><CardTitle>外观</CardTitle><CardDescription>所有页面使用同一套配色。阅读背景可在作品阅读中单独调整。</CardDescription></CardHeader><CardContent><div className="flex flex-wrap gap-3">{[{value:"light",label:"浅色"},{value:"dark",label:"深色"},{value:"system",label:"跟随系统"}].map((item) => <Button key={item.value} variant={theme === item.value ? "default" : "outline"} aria-pressed={theme === item.value} onClick={() => setTheme(item.value)}>{item.label}</Button>)}</div></CardContent></Card>}
-      </ScrollRegion></section>
-    </div>
-  </PageFrame>;
+    <ProfileManager profiles={profiles.profiles} encryptionReady={profiles.encryptionReady} />
+    <AutomationSettings />
+    <NativeStorageSettings/>
+  </div>;
 }
 
 function NotFoundPage() {
-  return <PageFrame title="页面不存在"><ScrollRegion label="页面提示"><Link className="text-primary underline" to="/">返回项目库</Link></ScrollRegion></PageFrame>;
+  return <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 lg:px-6">
+    <h1 className="text-2xl font-semibold tracking-tight">页面不存在</h1>
+    <Link className="text-primary underline" to="/">返回项目库</Link>
+  </div>;
 }
 
 function ErrorPage() {
