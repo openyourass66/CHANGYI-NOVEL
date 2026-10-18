@@ -92,6 +92,8 @@ export function ContinuationPanel({
   hasMemory,
   initialStage,
   onExportText,
+  onAutoContinue,
+  automationActive = false,
 }: {
   projectId: string;
   projectName: string;
@@ -103,6 +105,8 @@ export function ContinuationPanel({
   hasMemory: boolean;
   initialStage: string | null;
   onExportText?: (fileName: string, text: string) => Promise<void>;
+  onAutoContinue?: (planId: string, profileId: string, outlineCount: number) => Promise<void>;
+  automationActive?: boolean;
 }) {
   const [profileId, setProfileId] = useState(
     () => profiles.find((p) => p.isDefault)?.id ?? profiles[0]?.id ?? "",
@@ -130,6 +134,7 @@ export function ContinuationPanel({
   const activeTask = tasks.find((t) => t.type === taskType) ?? tasks[0];
   const needsPlan = Boolean(activeTask?.requirement) && activeTask?.requirement !== "memory";
   const showOutlineCount = activeTask?.type === "outline";
+  const showAutomaticCount = Boolean(onAutoContinue);
   const isContinuityTask = activeTask?.type === "continuity-check";
   const isDraftMemoryTask = activeTask?.type === "draft-memory";
   const showDrafts = DRAFT_STAGES.has(taskType);
@@ -164,7 +169,7 @@ export function ContinuationPanel({
 
   const {
     run: hookRun,
-    runActive,
+    runActive: taskActive,
     busy,
     preview,
     authOpen,
@@ -183,6 +188,7 @@ export function ContinuationPanel({
       setReloadKey((k) => k + 1);
     },
   });
+  const runActive = taskActive || automationActive;
 
   // 需要看草稿的步骤：拉取所选方向的草稿。
   useEffect(() => {
@@ -336,6 +342,11 @@ export function ContinuationPanel({
   async function activate(id: string) {
     setActingPlan(id);
     try {
+      if (onAutoContinue) {
+        await onAutoContinue(id, profileId, outlineCount);
+        await refreshPlans();
+        return;
+      }
       const res = await fetch(`/api/projects/${projectId}/plans/${id}/activate`, {
         method: "POST",
       });
@@ -449,7 +460,7 @@ export function ContinuationPanel({
       <header className="space-y-1.5">
         <h1 className="text-2xl font-semibold tracking-tight">{projectName}</h1>
         <p className="text-sm text-muted-foreground">
-          确定续写方向 → 排章纲 → 写草稿 → 核对并提取记忆变化。方向可以自己填写，也可以由 AI 生成。
+          {onAutoContinue ? "配置模型和章数后，选定方向即可自动完成章纲、正文、检查与记忆提取。已有章纲和正文会保留。" : "确定续写方向 → 排章纲 → 写草稿 → 核对并提取记忆变化。方向可以自己填写，也可以由 AI 生成。"}
         </p>
       </header>
 
@@ -503,7 +514,7 @@ export function ContinuationPanel({
             </div>
           </div>
 
-          {(needsPlan || showOutlineCount) && (
+          {(needsPlan || showOutlineCount || showAutomaticCount) && (
             <div className="grid gap-4 md:grid-cols-2">
               {needsPlan && (
                 <div className="space-y-1.5">
@@ -542,7 +553,7 @@ export function ContinuationPanel({
                 </div>
               )}
 
-              {showOutlineCount && (
+              {(showOutlineCount || showAutomaticCount) && (
                 <div className="space-y-1.5">
                   <Label htmlFor="cn-count">规划章数</Label>
                   <Select
@@ -695,18 +706,18 @@ export function ContinuationPanel({
                         >
                           {isExpanded ? "收起章纲" : "查看章纲"}
                         </Button>
-                        {plan.status !== "active" && (
+                        {(plan.status !== "active" || onAutoContinue) && (
                           <Button
                             size="sm"
                             onClick={() => void activate(plan.id)}
-                            disabled={actingPlan === plan.id}
+                            disabled={actingPlan !== null || runActive}
                           >
                             {actingPlan === plan.id ? (
                               <Loader2 className="size-4 animate-spin" />
                             ) : (
                               <Check className="size-4" />
                             )}
-                            选定此方向
+                            {onAutoContinue ? (plan.draftCount > 0 ? "继续此方向的自动续写" : "选定此方向并开始续写") : "选定此方向"}
                           </Button>
                         )}
                         <Button
@@ -1010,6 +1021,10 @@ export function ContinuationPanel({
             setExpandedId(saved.id);
             setDirectionEditor(null);
             if (goToOutline) {
+              if (onAutoContinue) {
+                void activate(saved.id);
+                return;
+              }
               setEditing(null);
               setTaskType("outline");
               window.scrollTo({ top: 0, behavior: "smooth" });

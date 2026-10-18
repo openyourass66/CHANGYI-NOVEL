@@ -85,7 +85,7 @@ export function useAnalysisRun(options: {
       setPreview(null);
       setRunId(data.runId);
       setRun(null);
-      notify.success("任务已开始");
+      if (document.documentElement.dataset.nativeDesktop !== "true") notify.success("任务已开始");
     },
     [projectId],
   );

@@ -12,6 +12,21 @@ use std::{
 pub fn ensure_idle(db: &Connection) -> Result<()> {
     if !query(
         db,
+        "SELECT name FROM sqlite_master WHERE name='NativeWorkflow'",
+        &[],
+    )?
+    .is_empty()
+        && !query(
+            db,
+            "SELECT id FROM NativeWorkflow WHERE status='running' LIMIT 1",
+            &[],
+        )?
+        .is_empty()
+    {
+        return Err("工作区仍有自动流程，请先完成或停止。".into());
+    }
+    if !query(
+        db,
         "SELECT id FROM AnalysisRun WHERE status IN ('pending','running') LIMIT 1",
         &[],
     )?

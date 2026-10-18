@@ -16,3 +16,17 @@ body { margin: 0; }
 html[data-native-desktop] .app-titlebar { padding-right: 148px; user-select: none; }
 html[data-native-desktop] .native-window-controls { display: flex; }
 .native-window-controls { display: none; }
+
+.reader-layout { display: grid; grid-template-columns: 230px minmax(0,1fr); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--card); color: var(--foreground); }
+.reader-directory { max-height: 75vh; overflow: auto; }
+.reader-viewport { height: 68vh; min-height: 360px; overflow: auto; overflow-wrap: anywhere; outline-offset: -3px; }
+.reader-prose { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+.reader-prose p { margin-bottom: 1.2em; text-indent: 2em; white-space: pre-wrap; }
+.reader-select { min-height: 36px; padding: 4px 8px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; }
+.reader-select option { background: var(--card); color: var(--foreground); }
+.reader-chapter:hover, .reader-chapter[aria-current="page"] { background: color-mix(in srgb, currentColor 10%, transparent); }
+.reader-chapter[aria-current="page"] { font-weight: 600; }
+.reader-layout[data-reading-theme="light"] { background: #fffefa; color: #292820; }
+.reader-layout[data-reading-theme="sepia"] { background: #f3ebd8; color: #413b2d; }
+.reader-layout[data-reading-theme="dark"] { background: #202320; color: #dcded7; }
+@media (max-width: 800px) { .reader-layout { grid-template-columns: 1fr; } .reader-directory { max-height: 220px; border-right: 0; border-bottom: 1px solid var(--border); } }

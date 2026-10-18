@@ -7,11 +7,13 @@ import { cn } from "@/lib/utils";
 
 export function ProjectNav({ projectId }: { projectId: string }) {
   const pathname = usePathname();
+  const native = typeof document !== "undefined" && document.documentElement.dataset.nativeDesktop === "true";
   const items = [
     { href: `/projects/${projectId}`, label: "章节校对", icon: BookOpenCheck, exact: true },
     { href: `/projects/${projectId}/memory`, label: "记忆工作台", icon: BrainCircuit },
     { href: `/projects/${projectId}/analysis`, label: "理解分析", icon: Sparkles },
     { href: `/projects/${projectId}/continuation`, label: "续写规划", icon: Compass },
+    ...(native ? [{ href: `/projects/${projectId}/read`, label: "阅读", icon: BookOpenCheck }] : []),
   ];
 
   return (

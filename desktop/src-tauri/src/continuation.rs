@@ -369,6 +369,9 @@ fn update_draft(
     body: &Value,
 ) -> Result<Value> {
     let current = draft(db, project_id, draft_id)?;
+    if body.get("expectedVersion").is_some() && body["expectedVersion"] != current["version"] {
+        return Err("正文已更新，请重新打开本章后编辑。".into());
+    }
     let title = if body.get("title").is_some() {
         if body["title"].is_null() {
             None

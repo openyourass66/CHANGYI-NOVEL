@@ -388,6 +388,12 @@ fn chapter_analysis_calls_local_model_and_creates_reviewable_proposal() {
     });
     let mut f = Fixture::new();
     let project = f.create();
+    f.request(
+        "PATCH",
+        &format!("/api/projects/{project}/automation"),
+        json!({"autoAccept":false,"autoSynthesis":false}),
+    )
+    .unwrap();
     f.import(&project, "他回到故乡。");
     let profile=f.request("POST","/api/model-profiles",json!({
         "name":"Mock 模型","provider":"ollama","model":"mock","baseUrl":format!("http://{address}/v1"),"isLocal":true
@@ -492,6 +498,12 @@ fn book_synthesis_requires_memory_and_creates_inferred_proposals() {
     });
     let mut f = Fixture::new();
     let project = f.create();
+    f.request(
+        "PATCH",
+        &format!("/api/projects/{project}/automation"),
+        json!({"autoAccept":false,"autoSynthesis":false}),
+    )
+    .unwrap();
     f.import(&project, "主角回到北方故乡。");
     let profile = f
         .request(
@@ -1435,14 +1447,41 @@ fn existing_prisma_schema_is_accepted_without_rebuilding_it() {
     }
     db.execute("INSERT INTO NovelProject(id,name,createdAt,updatedAt) VALUES('old','旧项目',1720000000000,1720000000000)",[]).unwrap();
     drop(db);
-    let before = fs::read(dir.path().join("app.db")).unwrap();
+    let old = Connection::open(dir.path().join("app.db")).unwrap();
+    let schema = database::query(
+        &old,
+        "SELECT name,sql FROM sqlite_master ORDER BY name",
+        &[],
+    )
+    .unwrap();
+    drop(old);
     let db = database::open(dir.path()).unwrap();
+    for original in schema {
+        assert_eq!(
+            database::one(
+                &db,
+                "SELECT name,sql FROM sqlite_master WHERE name=?",
+                &[original["name"].clone()]
+            )
+            .unwrap(),
+            original
+        );
+    }
+    assert_eq!(
+        database::one(&db, "SELECT name FROM NovelProject WHERE id='old'", &[]).unwrap()["name"],
+        "旧项目"
+    );
     assert_eq!(
         database::one(&db, "SELECT * FROM NovelProject", &[]).unwrap()["createdAt"],
         "2024-07-03T09:46:40.000Z"
     );
     drop(db);
-    assert_eq!(fs::read(dir.path().join("app.db")).unwrap(), before);
+    let migrated = fs::read(dir.path().join("app.db")).unwrap();
+    drop(database::open(dir.path()).unwrap());
+    assert!(
+        fs::read(dir.path().join("app.db")).unwrap() == migrated,
+        "reopening must be idempotent"
+    );
 }
 
 #[test]
@@ -1460,4 +1499,314 @@ fn reject_unsafe_paths_and_unknown_api() {
     assert!(f
         .request("POST", "/api/sql", json!({"sql":"DROP TABLE NovelProject"}))
         .is_err());
+}
+
+fn automation_mock(outputs: Vec<Value>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        time::{Duration, Instant},
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = format!("http://{}/v1", listener.local_addr().unwrap());
+    let handle = std::thread::spawn(move || {
+        let mut requests = vec![];
+        for output in outputs {
+            let deadline = Instant::now() + Duration::from_secs(15);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "missing model request");
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(e) => panic!("{e}"),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut bytes = vec![];
+            loop {
+                let mut chunk = [0u8; 8192];
+                let size = stream.read(&mut chunk).unwrap();
+                if size == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&chunk[..size]);
+                if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let header = String::from_utf8_lossy(&bytes[..end]);
+                    let length = header
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .and_then(|v| v.trim().parse::<usize>().ok())
+                        })
+                        .unwrap_or(0);
+                    if bytes.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            requests.push(String::from_utf8_lossy(&bytes).into_owned());
+            let payload =
+                json!({"choices":[{"message":{"content":output.to_string()}}]}).to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+        }
+        requests
+    });
+    (address, handle)
+}
+fn automation_profile(f: &mut Fixture, address: &str) -> String {
+    f.request("POST","/api/model-profiles",json!({"name":"自动流程测试","provider":"ollama","model":"mock","baseUrl":address,"isLocal":true})).unwrap()["profile"]["id"].as_str().unwrap().into()
+}
+fn wait_workflow(f: &mut Fixture, id: &str, expected: &str) -> Value {
+    use std::time::{Duration, Instant};
+    let deadline = Instant::now() + Duration::from_secs(12);
+    loop {
+        let rows = f.request("GET", "/api/workflows", Value::Null).unwrap();
+        let row = rows["workflows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["id"] == id)
+            .unwrap()
+            .clone();
+        if row["status"] == expected {
+            return row;
+        }
+        assert!(
+            row["status"] != "failed" || expected == "failed",
+            "workflow failed: {}",
+            row["error"]
+        );
+        assert!(Instant::now() < deadline, "workflow timeout: {row}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+fn automation_outline() -> Value {
+    json!({"chapters":[{"title":"启程","summary":"主角出发","beats":[],"relatedThreads":[]},{"title":"归来","summary":"主角归来","beats":[],"relatedThreads":[]}],"notes":"","conflicts":[]})
+}
+fn automation_draft(title: &str) -> Value {
+    json!({"title":title,"content":"主角沿着故乡的石板路向前走，远处的钟声在山间回荡。他记得临行前的约定，决定先找到旧日的同伴，再一同查明事情的经过。眼前的街巷安静如常，新的旅程从这里开始。"})
+}
+
+#[test]
+fn automatic_understanding_accepts_memory_then_synthesizes_with_one_overall_notice() {
+    let (address, server) = automation_mock(vec![
+        json!({"chapterNote":{"summary":"主角回到故乡。","excerpt":"回到故乡"},"events":[],"characters":[],"settings":[],"threads":[],"glossary":[]}),
+        json!({"overview":"主角已归乡。","endingState":"抵达故乡。","unresolved":[],"constraints":[],"choices":[],"ambiguities":[]}),
+    ]);
+    let mut f = Fixture::new();
+    let p = f.create();
+    f.import(&p, "他回到故乡。");
+    let settings = f
+        .request("GET", &format!("/api/projects/{p}/automation"), Value::Null)
+        .unwrap();
+    assert_eq!(
+        settings,
+        json!({"autoAccept":true,"autoSynthesis":true,"sound":true})
+    );
+    let profile = automation_profile(&mut f, &address);
+    let started = f
+        .request(
+            "POST",
+            &format!("/api/projects/{p}/analysis"),
+            json!({"taskType":"chapter-extract","profileId":profile}),
+        )
+        .unwrap();
+    let workflow = started["workflowId"].as_str().unwrap();
+    let done = wait_workflow(&mut f, workflow, "done");
+    assert_eq!(done["step"], 2);
+    let proposals = f
+        .request("GET", &format!("/api/projects/{p}/proposals"), Value::Null)
+        .unwrap();
+    assert_eq!(proposals["counts"]["accepted"], 3);
+    assert!(proposals["counts"]["pending"].is_null());
+    let rows = f.request("GET", "/api/workflows", Value::Null).unwrap();
+    assert_eq!(rows["workflows"].as_array().unwrap().len(), 1);
+    f.request(
+        "POST",
+        &format!("/api/workflows/{workflow}/ack"),
+        Value::Null,
+    )
+    .unwrap();
+    assert_eq!(
+        f.request("GET", "/api/workflows", Value::Null).unwrap()["workflows"][0]["notified"],
+        1
+    );
+    let requests = server.join().unwrap();
+    assert!(requests[1].contains("主角回到故乡"));
+}
+
+#[test]
+fn automatic_continuation_retries_only_missing_work_and_keeps_draft_memory_pending() {
+    let (address, server) = automation_mock(vec![
+        automation_outline(),
+        automation_draft("启程"),
+        json!({"title":"归来","content":"过短"}),
+        json!({"title":"归来","content":"仍然过短"}),
+        automation_draft("归来"),
+        json!({"issues":[]}),
+        json!({"issues":[]}),
+        json!({"items":[{"category":"chapter-note","key":"","title":"","content":"主角出发寻找同伴。"}]}),
+        json!({"items":[{"category":"chapter-note","key":"","title":"","content":"主角和同伴归来。"}]}),
+    ]);
+    let mut f = Fixture::new();
+    let p = f.create();
+    f.import(&p, "他回到故乡。");
+    f.request("POST",&format!("/api/projects/{p}/memory"),json!({"category":"character","key":"hero","title":"主角","content":"已回故乡","status":"confirmed","citations":[]})).unwrap();
+    let plan = f
+        .request(
+            "POST",
+            &format!("/api/projects/{p}/plans"),
+            json!({"direction":"寻找同伴","summary":"主角出发寻找同伴"}),
+        )
+        .unwrap()["plan"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let profile = automation_profile(&mut f, &address);
+    let started = f
+        .request(
+            "POST",
+            &format!("/api/projects/{p}/workflows"),
+            json!({"kind":"continue","profileId":profile,"planId":plan,"outlineCount":2}),
+        )
+        .unwrap();
+    let workflow = started["workflowId"].as_str().unwrap();
+    let failed = wait_workflow(&mut f, workflow, "failed");
+    assert_eq!(failed["step"], 1, "{failed}");
+    let before = f
+        .request(
+            "GET",
+            &format!("/api/projects/{p}/plans/{plan}/drafts"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(before["drafts"].as_array().unwrap().len(), 1, "{failed}");
+    f.request(
+        "POST",
+        &format!("/api/workflows/{workflow}/resume"),
+        Value::Null,
+    )
+    .unwrap();
+    wait_workflow(&mut f, workflow, "done");
+    let after = f
+        .request(
+            "GET",
+            &format!("/api/projects/{p}/plans/{plan}/drafts"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(after["drafts"].as_array().unwrap().len(), 2);
+    assert_eq!(before["drafts"][0]["id"], after["drafts"][0]["id"]);
+    assert_eq!(after["drafts"][0]["version"], 1);
+    assert!(after["drafts"][0]["continuityCheckedAt"].is_string());
+    assert_eq!(
+        f.request("GET", &format!("/api/projects/{p}/proposals"), Value::Null)
+            .unwrap()["counts"]["pending"],
+        2
+    );
+    assert_eq!(
+        database::query(
+            &f.db,
+            "SELECT id FROM MemoryEntry WHERE projectId=? AND isCurrent=1",
+            &[json!(p)]
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+    assert_eq!(server.join().unwrap().len(), 9);
+}
+
+#[test]
+fn automatic_workflow_requires_cloud_authorization_and_protects_model_changes_on_resume() {
+    let mut f = Fixture::new();
+    let p = f.create();
+    f.import(&p, "他回到故乡。");
+    let profile=f.request("POST","/api/model-profiles",json!({"name":"远端","provider":"openai-compatible","model":"mock","baseUrl":"https://example.invalid/v1","apiKey":"test-key","isLocal":false})).unwrap()["profile"]["id"].as_str().unwrap().to_string();
+    assert!(f
+        .request(
+            "POST",
+            &format!("/api/projects/{p}/workflows"),
+            json!({"kind":"understand","profileId":profile})
+        )
+        .unwrap_err()
+        .contains("授权"));
+    assert_eq!(
+        database::query(&f.db, "SELECT id FROM NativeWorkflow", &[])
+            .unwrap()
+            .len(),
+        0
+    );
+    database::execute(&f.db,"INSERT INTO NativeWorkflow(id,projectId,kind,status,stepsJson,configJson,createdAt,updatedAt) VALUES('interrupted',?,'understand','running','[]',?, ?, ?)",&[json!(p),json!(json!({"profileId":profile,"profile":{"model":"old"}}).to_string()),json!(database::now()),json!(database::now())]).unwrap();
+    assert_eq!(
+        f.request("GET", "/api/workflows", Value::Null).unwrap()["workflows"][0]["status"],
+        "stalled"
+    );
+    assert!(f
+        .request("POST", "/api/workflows/interrupted/resume", Value::Null)
+        .unwrap_err()
+        .contains("模型配置"));
+    assert!(changyi_desktop::storage::ensure_idle(&f.db).is_err());
+    f.request("POST", "/api/workflows/interrupted/cancel", Value::Null)
+        .unwrap();
+    assert!(changyi_desktop::storage::ensure_idle(&f.db).is_ok());
+}
+
+#[test]
+fn automatic_acceptance_protects_author_edits_and_does_not_accept_older_proposals() {
+    let (address, server) = automation_mock(vec![
+        json!({"chapterNote":{"summary":"模型笔记。","excerpt":"回到故乡"},"events":[],"characters":[],"settings":[],"threads":[],"glossary":[]}),
+    ]);
+    let mut f = Fixture::new();
+    let p = f.create();
+    f.import(&p, "他回到故乡。");
+    let chapter = f.chapters(&p)[0]["id"].as_str().unwrap().to_string();
+    f.request(
+        "PATCH",
+        &format!("/api/projects/{p}/automation"),
+        json!({"autoSynthesis":false}),
+    )
+    .unwrap();
+    let entry=f.request("POST",&format!("/api/projects/{p}/memory"),json!({"category":"chapter-note","key":format!("ch:{chapter}"),"title":"作者笔记","content":"作者保留内容","status":"confirmed","citations":[]})).unwrap()["entry"]["id"].as_str().unwrap().to_string();
+    database::execute(&f.db,"INSERT INTO MemoryProposal(id,projectId,kind,category,content,status,createdAt,updatedAt) VALUES('older',?,'add','summary','旧的待审阅提案','inferred',?,?)",&[json!(p),json!(database::now()),json!(database::now())]).unwrap();
+    let profile = automation_profile(&mut f, &address);
+    let run = f
+        .request(
+            "POST",
+            &format!("/api/projects/{p}/analysis"),
+            json!({"taskType":"chapter-extract","profileId":profile}),
+        )
+        .unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+    loop {
+        let status = f
+            .request("GET", &format!("/api/analysis/{run}"), Value::Null)
+            .unwrap();
+        if status["run"]["status"] == "done" {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "{status}");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let rows = f
+        .request("GET", &format!("/api/projects/{p}/proposals"), Value::Null)
+        .unwrap();
+    assert_eq!(rows["counts"]["conflicted"], 1);
+    assert_eq!(rows["counts"]["pending"], 1);
+    assert_eq!(
+        f.request("GET", &format!("/api/memory/{entry}"), Value::Null)
+            .unwrap()["entry"]["content"],
+        "作者保留内容"
+    );
+    server.join().unwrap();
 }

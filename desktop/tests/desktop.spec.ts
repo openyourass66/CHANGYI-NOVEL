@@ -180,8 +180,9 @@ test("analysis calls a local model and shows a proposal for review", async ({ pa
     }, `http://127.0.0.1:${address.port}/v1`);
     await page.getByRole("link", { name: "理解分析" }).click();
     await expect(page.getByRole("button", { name: "开始逐章抽取" })).toBeVisible();
+    await page.getByLabel("自动全部采纳分析记忆").uncheck();
+    await page.getByLabel("分析后自动统合全书").uncheck();
     await page.getByRole("button", { name: "开始逐章抽取" }).click();
-    await page.getByRole("button", { name: "知道了" }).click();
     await expect(page.getByText("主角回到故乡。", { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/第 1 章：回到故乡/)).toBeVisible();
     await page.getByRole("button", { name: "采纳", exact: true }).click();
@@ -191,7 +192,6 @@ test("analysis calls a local model and shows a proposal for review", async ({ pa
     await page.getByRole("link", { name: "理解分析" }).click();
     await page.getByRole("button", { name: /全书统合/ }).first().click();
     await page.getByRole("button", { name: "开始全书统合" }).click();
-    await page.getByRole("button", { name: "知道了" }).click();
     await expect(page.getByText("主角已归乡。", { exact: true })).toBeVisible({ timeout: 15_000 });
     expect(requests).toBe(2);
   } finally {
@@ -248,13 +248,10 @@ test("draft generation, continuity evidence, and memory extraction use the nativ
     await page.getByRole("link", { name: "续写规划" }).click();
     await page.getByRole("button", { name: /^生成草稿/ }).first().click();
     await page.getByRole("button", { name: "开始生成草稿" }).click();
-    await page.getByRole("button", { name: "知道了" }).click();
     await expect(page.getByRole("button", { name: "阅读 / 编辑" })).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "检查连续性", exact: true }).click();
-    await page.getByRole("button", { name: "知道了" }).click();
     await expect(page.getByText("1 处待核对")).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "提取记忆变化", exact: true }).click();
-    await page.getByRole("button", { name: "知道了" }).click();
     await expect(page.getByText("有记忆提案", { exact: true })).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "阅读 / 编辑" }).click();
     await expect(page.getByText("城门状态需要核对", { exact: true })).toBeVisible();
@@ -265,5 +262,89 @@ test("draft generation, continuity evidence, and memory extraction use the nativ
     expect(saved[0].fileName).toBe("第1章-城门.txt");
     expect(saved[0].text).toContain("他停在城门前");
     expect(requests).toBe(3);
+  } finally { server.close(); }
+});
+
+
+test("automatic continuation survives navigation, reminds once, and opens a reader with saved progress", async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = window as unknown as { reminderTones: number };
+    state.reminderTones = 0;
+    const original = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function () {
+      const oscillator = original.call(this);
+      const start = oscillator.start.bind(oscillator);
+      oscillator.start = (...args: Parameters<OscillatorNode["start"]>) => { state.reminderTones += 1; start(...args); };
+      return oscillator;
+    };
+  });
+  const prose = "主角沿着故乡的石板路向前走，远处的钟声在山间回荡。他记得临行前的约定，决定先找到旧日的同伴，再一同查明事情的经过。";
+  const outputs = [
+    { title: "出发", content: Array(40).fill(prose).join("\n\n") },
+    { title: "归来", content: Array(40).fill("同伴归来。" + prose).join("\n\n") },
+    { issues: [] }, { issues: [] }, { items: [] }, { items: [] },
+  ];
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    const output = outputs[requests++];
+    setTimeout(() => {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }] }));
+    }, 500);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === "string") throw new Error("mock missing");
+    await createProject(page, "自动续写阅读验收");
+    await page.evaluate(async (baseUrl) => {
+      const id = location.hash.match(/projects\/([^/?]+)/)![1];
+      async function post(path: string, body: unknown, method = "POST") {
+        const response = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        if (!response.ok) throw new Error(await response.text()); return response.json();
+      }
+      await post(`/api/projects/${id}/memory`, { category: "character", key: "hero", title: "主角", content: "主角已归乡", status: "confirmed", citations: [] });
+      const { plan } = await post(`/api/projects/${id}/plans`, { direction: "寻找旧日同伴", summary: "先出发，再与同伴归来" });
+      await post(`/api/projects/${id}/plans/${plan.id}`, { outline: [{ title: "出发", summary: "主角出发", beats: [], relatedThreads: [] }, { title: "归来", summary: "同伴归来", beats: [], relatedThreads: [] }] }, "PATCH");
+      await post("/api/model-profiles", { name: "自动续写模型", provider: "ollama", model: "mock", baseUrl, isLocal: true });
+    }, `http://127.0.0.1:${address.port}/v1`);
+    await page.getByRole("link", { name: "续写规划", exact: true }).click();
+    await page.evaluate(() => {
+      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args: {request?: {path: string}}) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const original = internals.invoke; let failures = 0;
+      internals.invoke = async (command, args) => {
+        if (command === "api_request" && args.request?.path.endsWith("/ack") && failures++ < 2) return { status: 503, body: { error: "模拟通知记录暂时写入失败" } };
+        return original(command, args);
+      };
+    });
+    await page.getByRole("button", { name: "选定此方向并开始续写", exact: true }).click();
+    await expect.poll(() => requests).toBeGreaterThan(0);
+    expect(await page.evaluate(() => (window as unknown as { reminderTones: number }).reminderTones)).toBe(0);
+    await page.getByRole("link", { name: "阅读", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "出发", exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("link", { name: "开始阅读", exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => page.evaluate(() => (window as unknown as { reminderTones: number }).reminderTones)).toBe(2);
+    expect(requests).toBe(6);
+    await expect.poll(() => page.evaluate(async () => {
+      const response = await fetch("/api/workflows");
+      const data = await response.json();
+      return data.workflows.find((w: {kind: string}) => w.kind === "continue")?.notified;
+    })).toBe(1);
+    expect(await page.evaluate(() => (window as unknown as { reminderTones: number }).reminderTones)).toBe(2);
+    await page.getByLabel("阅读字号").fill("24");
+    await page.getByLabel("阅读背景").selectOption("sepia");
+    await page.getByRole("button", { name: "下一章", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "归来", exact: true })).toBeVisible();
+    await page.getByLabel("小说正文").evaluate((element) => { element.scrollTop = 340; element.dispatchEvent(new Event("scroll")); });
+    await page.getByRole("link", { name: "续写规划", exact: true }).click();
+    await page.getByRole("link", { name: "阅读", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "归来", exact: true })).toBeVisible();
+    await expect(page.getByLabel("阅读字号")).toHaveValue("24");
+    await expect(page.getByLabel("阅读背景")).toHaveValue("sepia");
+    await expect.poll(() => page.getByLabel("小说正文").evaluate((element) => element.scrollTop)).toBe(340);
+    expect(await page.evaluate(() => (window as unknown as { reminderTones: number }).reminderTones)).toBe(2);
+    await page.screenshot({ path: ".verify/reader-automation.png", fullPage: true });
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "归来", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { reminderTones: number }).reminderTones)).toBe(0);
   } finally { server.close(); }
 });

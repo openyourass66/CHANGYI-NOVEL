@@ -43,6 +43,29 @@ pub fn dispatch(db: &mut Connection, root: &Path, req: &ApiRequest) -> Result<Va
         .split('/')
         .collect();
     let body = &req.body;
+    if let Some(result) = crate::automation::route(db, root, &req.method, &parts, body) {
+        return result;
+    }
+    if req.method != "GET" {
+        if let ["api", "chapters", chapter_id, ..] = parts.as_slice() {
+            let chapter = one(
+                db,
+                "SELECT projectId FROM Chapter WHERE id=?",
+                &[json!(chapter_id)],
+            )?;
+            if crate::automation::active(db, chapter["projectId"].as_str().ok_or("章节不存在。")?)?
+            {
+                return Err("自动流程正在运行，请先停止后再修改原文。".into());
+            }
+        }
+        if let ["api", "projects", project_id, rest @ ..] = parts.as_slice() {
+            if crate::automation::active(db, project_id)?
+                && !matches!(rest, ["proposals", "accept-all"])
+            {
+                return Err("自动流程正在运行，请先停止后再修改项目内容。".into());
+            }
+        }
+    }
     if let Some(result) = crate::memory::route(db, &req.method, &parts, &req.path, body) {
         return result;
     }
@@ -309,6 +332,7 @@ fn import_source(
             return Err("项目仍有分析任务运行中，请先取消或等待任务结束。".into());
         }
         for table in [
+            "NativeWorkflow",
             "MemoryProposal",
             "ContinuityIssue",
             "DraftChapter",

@@ -1,0 +1,26 @@
+CREATE TABLE IF NOT EXISTS NativeAutomationSettings (
+ projectId TEXT PRIMARY KEY REFERENCES NovelProject(id) ON DELETE CASCADE,
+ autoAccept INTEGER NOT NULL DEFAULT 1,
+ autoSynthesis INTEGER NOT NULL DEFAULT 1,
+ sound INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS NativeWorkflow (
+ id TEXT PRIMARY KEY,
+ projectId TEXT NOT NULL REFERENCES NovelProject(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'running',
+ stepsJson TEXT NOT NULL,
+ step INTEGER NOT NULL DEFAULT 0,
+ runId TEXT,
+ configJson TEXT NOT NULL,
+ error TEXT,
+ notified INTEGER NOT NULL DEFAULT 0,
+ createdAt INTEGER NOT NULL,
+ updatedAt INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS NativeWorkflow_active ON NativeWorkflow(projectId) WHERE status='running';
+CREATE TABLE IF NOT EXISTS NativeTaskNotice (
+ runId TEXT NOT NULL REFERENCES AnalysisRun(id) ON DELETE CASCADE,
+ status TEXT NOT NULL,
+ PRIMARY KEY(runId,status)
+);

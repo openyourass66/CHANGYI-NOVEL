@@ -202,7 +202,7 @@ fn current_head(db: &Connection, target_id: &str, project_id: &str) -> Result<Va
     Err("记忆版本链过长或损坏。".into())
 }
 
-fn accept(db: &mut Connection, proposal_id: &str) -> Result<Value> {
+pub(crate) fn accept(db: &mut Connection, proposal_id: &str) -> Result<Value> {
     let tx = db.transaction().map_err(|e| e.to_string())?;
     let row = proposal(&tx, proposal_id)?;
     if row["state"] != "pending" {

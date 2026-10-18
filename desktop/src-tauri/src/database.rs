@@ -37,6 +37,8 @@ pub fn open(directory: &Path) -> Result<Connection> {
         tx.commit().map_err(|e| e.to_string())?;
     }
     validate(&db)?;
+    db.execute_batch(include_str!("automation.sql"))
+        .map_err(|e| e.to_string())?;
     Ok(db)
 }
 

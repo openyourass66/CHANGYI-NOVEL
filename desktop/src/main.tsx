@@ -21,8 +21,11 @@ import type { ChapterSummary } from "@/lib/chapters-view";
 import { api, installBridge } from "./bridge";
 import { NativeStorageSettings } from "./storage-settings";
 import "./styles.css";
+import { AutomationProvider, AutomationSettings, useAutoContinue, useWorkflows } from "./automation";
+import { Reader } from "./reader";
 
 installBridge();
+if (isTauri()) document.documentElement.dataset.nativeDesktop = "true";
 let startupChecked = false;
 
 type Workspace = {
@@ -51,7 +54,7 @@ function Shell() {
     return () => document.removeEventListener("mousedown", drag);
   }, []);
   return <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-    <AppShell><Outlet /></AppShell>
+    <AppShell><AutomationProvider><Outlet /></AutomationProvider></AppShell>
     <div className="native-window-controls fixed right-0 top-0 z-50 h-14 items-stretch">
       {[
         { label: "最小化", icon: Minus, action: () => getCurrentWindow().minimize() },
@@ -111,10 +114,10 @@ function Analysis() {
     description: "在已有记忆之上统合全书，产出概要、结局状态、未决线索与续写约束。",
     requirement: "memory",
   }];
-  return <AnalysisPanel key={data.project.id} projectId={data.project.id} projectName={data.project.name}
+  return <><div className="mx-auto w-full max-w-7xl px-6 pt-6"><AutomationSettings projectId={data.project.id} /></div><AnalysisPanel key={`${data.project.id}:${data.run?.id}`} projectId={data.project.id} projectName={data.project.name}
     chapters={chapters} profiles={data.profiles} tasks={tasks} initialProposals={data.proposals}
     initialCounts={data.counts} initialRun={data.run} taskRuns={data.taskRuns}
-    totalMemory={data.totalMemory} hasMemory={data.totalMemory > 0} initialStage={data.run?.taskType ?? null} />;
+    totalMemory={data.totalMemory} hasMemory={data.totalMemory > 0} initialStage={data.run?.taskType ?? null} /></>;
 }
 
 type ContinuationData = Workspace & {
@@ -127,6 +130,9 @@ type ContinuationData = Workspace & {
 
 function Continuation() {
   const data=useLoaderData() as ContinuationData;
+  const automatic = useAutoContinue(data.project.id, data.profiles);
+  const workflows = useWorkflows();
+  const active = workflows.some((w) => w.projectId === data.project.id && w.status === "running");
   const tasks: import("@/lib/ai/tasks/registry").TaskSummary[]=[
     {type:"direction",label:"生成续写方向",scope:"project",unitLabel:"项",
       description:"依据记忆与最近原文，提出 3 个差异明显的续写方向供你择一。",requirement:"memory"},
@@ -139,10 +145,11 @@ function Continuation() {
     {type:"draft-memory",label:"提取记忆变化",scope:"project",unitLabel:"项",
       description:"从续写草稿里提取相对既有记忆的增量，产出待确认的记忆提案。",requirement:"drafts"},
   ];
-  return <ContinuationPanel key={data.project.id} projectId={data.project.id} projectName={data.project.name}
+  return <><ContinuationPanel key={`${data.project.id}:${data.run?.id}`} projectId={data.project.id} projectName={data.project.name}
     profiles={data.profiles} tasks={tasks} initialPlans={data.plans} initialRun={data.run}
     taskRuns={data.taskRuns} hasMemory={data.hasMemory} initialStage={data.run?.taskType ?? null}
-    onExportText={async(fileName,text)=>{await invoke("save_text",{fileName,text});}}/>;
+    onAutoContinue={automatic.request} automationActive={active}
+    onExportText={async(fileName,text)=>{await invoke("save_text",{fileName,text});}}/>{automatic.dialog}</>;
 }
 
 function Settings() {
@@ -234,6 +241,10 @@ const router = createHashRouter([{
     { path: "/projects/:id/memory", loader: memoryLoader, element: <Memory /> },
     { path: "/projects/:id/analysis", loader: analysisLoader, element: <Analysis /> },
     { path: "/projects/:id/continuation", loader: continuationLoader, element: <Continuation /> },
+    { path: "/projects/:id/read", loader: async ({params}) => {
+      const [workspace, plans] = await Promise.all([workspaceLoader({params}), api<{plans: ContinuationData["plans"]}>(`/api/projects/${params.id}/plans`)]);
+      return {project: workspace.project, plans: plans.plans};
+    }, element: <Reader /> },
     { path: "*", element: <NotFoundPage /> },
   ],
 }]);

@@ -23,6 +23,37 @@ pub fn is_processing(run_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn process_managed(db: &mut Connection, root: &Path, run_id: &str) -> Result<()> {
+    let run = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)])?;
+    if run["status"] == "failed" {
+        let stored = stored_input(&run);
+        let mut progress = progress_for(&run, stored["units"].as_array().map_or(0, Vec::len));
+        let failed = progress["failedIds"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if let Some(done) = progress["doneIds"].as_array_mut() {
+            done.retain(|id| !failed.contains(id));
+        }
+        progress["failedIds"] = json!([]);
+        progress["errors"] = json!([]);
+        save_progress(db, run_id, &progress)?;
+    }
+    processing()
+        .lock()
+        .map_err(|_| "任务锁不可用。")?
+        .insert(run_id.into());
+    let result = process(db, root, run_id);
+    if let Ok(mut running) = processing().lock() {
+        running.remove(run_id);
+    }
+    if let Err(error) = &result {
+        execute(db, "UPDATE AnalysisRun SET status='failed',error=?,finishedAt=?,updatedAt=? WHERE id=? AND status!='canceled'",
+            &[json!(error),json!(now()),json!(now()),json!(run_id)])?;
+    }
+    result
+}
+
 pub fn route(
     db: &mut Connection,
     root: &Path,
@@ -30,12 +61,40 @@ pub fn route(
     parts: &[&str],
     body: &Value,
 ) -> Option<Result<Value>> {
+    if let ("POST", ["api", "analysis", run_id, action @ ("cancel" | "resume")]) = (method, parts) {
+        if let Ok(run) = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)]) {
+            if let Some(workflow) = stored_input(&run)["payload"]["workflowId"].as_str() {
+                return Some(
+                    crate::automation::route(
+                        db,
+                        root,
+                        "POST",
+                        &["api", "workflows", workflow, action],
+                        body,
+                    )
+                    .unwrap_or_else(|| Err("流程不存在。".into()))
+                    .and_then(|_| status(db, run_id).map(|run| json!({"run":run}))),
+                );
+            }
+        }
+    }
     let result = match (method, parts) {
         ("GET", ["api", "projects", project_id, "analysis"]) => latest(db, project_id),
         ("POST", ["api", "projects", project_id, "analysis", "preview"]) => {
             preview(db, root, project_id, body)
         }
-        ("POST", ["api", "projects", project_id, "analysis"]) => start(db, root, project_id, body),
+        ("POST", ["api", "projects", project_id, "analysis"]) => {
+            if body["taskType"] == "chapter-extract"
+                && crate::automation::settings(db, project_id)
+                    .is_ok_and(|s| s["autoSynthesis"] == true)
+            {
+                let mut config = body.clone();
+                config["kind"] = json!("understand");
+                crate::automation::start(db, root, project_id, &config)
+            } else {
+                start(db, root, project_id, body)
+            }
+        }
         ("GET", ["api", "analysis", run_id]) => status(db, run_id).map(|run| json!({"run":run})),
         ("POST", ["api", "analysis", run_id, "cancel"]) => {
             cancel(db, run_id).map(|run| json!({"run":run}))
@@ -367,7 +426,9 @@ fn preview(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Resu
         "providerLabel":provider_label,"model":profile.model,"isLocal":profile.is_local,
         "unitCount":units.len(),"unitLabel":unit_label(task),"totalChars":total,
         "estimatedPromptChars":total+units.len()*900,
-        "sampleText":sample,"note":task_note(task)}}),
+        "sampleText":sample,"note":if task=="chapter-extract" && crate::automation::settings(db,project_id)?["autoSynthesis"]==true {
+            "本次授权包含逐章分析和随后自动执行的全书统合；所选章节原文、已有记忆、最近原文及本次产生的分析记忆将发送给此模型。整个流程完成后提醒一次。"
+        } else {task_note(task)}}}),
     )
 }
 
@@ -376,7 +437,7 @@ fn seed(total: usize) -> Value {
         "produced":0,"errors":[],"doneIds":[],"failedIds":[],"currentUnitId":null,"currentLabel":null})
 }
 
-fn start(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Result<Value> {
+pub(crate) fn start(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Result<Value> {
     let task = task_type(body)?;
     let profile_id = body["profileId"].as_str().ok_or("请选择模型档案。")?;
     let profile = model::resolve(db, root, profile_id)?;
@@ -400,7 +461,7 @@ fn start(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Result
         "chapterId":if task=="chapter-extract"{row["id"].clone()}else{Value::Null}})
         })
         .collect::<Vec<_>>();
-    let payload = if task == "chapter-extract" {
+    let mut payload = if task == "chapter-extract" {
         json!({"chapterIds":body["chapterIds"]})
     } else {
         body["payload"]
@@ -408,6 +469,18 @@ fn start(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Result
             .map(|_| body["payload"].clone())
             .unwrap_or(json!({}))
     };
+    if matches!(task, "chapter-extract" | "book-synthesis") {
+        payload["autoAccept"] = if body["workflowId"].is_null() {
+            crate::automation::settings(db, project_id)?["autoAccept"].clone()
+        } else {
+            body["autoAccept"].clone()
+        };
+    }
+    if !body["workflowId"].is_null() {
+        payload["workflowId"] = body["workflowId"].clone();
+    } else if crate::automation::active(db, project_id)? {
+        return Err("自动流程正在运行，请先停止流程。".into());
+    }
     let stored = json!({"payload":payload,"units":units});
     let run_id = id();
     let at = now();
@@ -415,7 +488,9 @@ fn start(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Result
         &[json!(run_id),json!(project_id),json!(task),json!(stored.to_string()),json!(profile_id),
             json!(if matches!(task,"outline"|"draft"){format!("{task}@2")}else{format!("{task}@1")}),json!(seed(units.len()).to_string()),
             if profile.is_local{Value::Null}else{json!(at)},json!(at),json!(at)])?;
-    spawn(root.to_path_buf(), run_id.clone());
+    if body["workflowId"].is_null() {
+        spawn(root.to_path_buf(), run_id.clone());
+    }
     Ok(json!({"runId":run_id}))
 }
 
@@ -484,7 +559,7 @@ fn progress_for(run: &Value, total: usize) -> Value {
     progress
 }
 
-fn status(db: &Connection, run_id: &str) -> Result<Value> {
+pub(crate) fn status(db: &Connection, run_id: &str) -> Result<Value> {
     let run = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)])?;
     let stored = stored_input(&run);
     let units = stored["units"].as_array().cloned().unwrap_or_default();
@@ -599,7 +674,7 @@ fn save_progress(db: &Connection, run_id: &str, progress: &Value) -> Result<()> 
     Ok(())
 }
 
-fn process(db: &mut Connection, root: &Path, run_id: &str) -> Result<()> {
+pub(crate) fn process(db: &mut Connection, root: &Path, run_id: &str) -> Result<()> {
     let run = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)])?;
     if run["status"] == "canceled" {
         return Ok(());
@@ -688,6 +763,9 @@ fn process(db: &mut Connection, root: &Path, run_id: &str) -> Result<()> {
         }
         match outcome {
             Ok((produced, one_usage)) => {
+                if stored["payload"]["autoAccept"] == true {
+                    crate::automation::accept_run(db, run_id)?;
+                }
                 progress["produced"] =
                     json!(progress["produced"].as_u64().unwrap_or(0) + produced as u64);
                 for field in ["promptTokens", "completionTokens", "totalTokens"] {
@@ -737,6 +815,10 @@ fn process(db: &mut Connection, root: &Path, run_id: &str) -> Result<()> {
             "UPDATE AnalysisRun SET usageJson=?,updatedAt=? WHERE id=?",
             &[json!(usage.to_string()), json!(now()), json!(run_id)],
         )?;
+        if run["taskType"] == "draft" && !progress["failedIds"].as_array().is_none_or(Vec::is_empty)
+        {
+            break;
+        }
     }
     let failed = progress["failedIds"]
         .as_array()
