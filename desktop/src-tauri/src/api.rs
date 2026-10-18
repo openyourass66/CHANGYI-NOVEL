@@ -43,6 +43,16 @@ pub fn dispatch(db: &mut Connection, root: &Path, req: &ApiRequest) -> Result<Va
         .split('/')
         .collect();
     let body = &req.body;
+    if req.method == "GET" && parts == ["api", "token-usage"] {
+        let url =
+            url::Url::parse(&format!("http://local{}", req.path)).map_err(|e| e.to_string())?;
+        let params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        return crate::token_usage::summary(
+            db,
+            params.get("projectId").map(String::as_str),
+            params.get("model").map(String::as_str),
+        );
+    }
     if let Some(result) = crate::works::route(db, root, &req.method, &parts, body) {
         return result;
     }

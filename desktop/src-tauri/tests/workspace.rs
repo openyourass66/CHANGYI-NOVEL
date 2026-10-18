@@ -2334,3 +2334,83 @@ fn orphan_drafts_from_legacy_backups_remain_editable_and_deletable() {
     f.request("DELETE", &format!("/api/projects/{project}/drafts/{draft}"), Value::Null).unwrap();
     assert!(database::query(&f.db, "SELECT id FROM DraftChapter WHERE projectId=?", &[json!(project)]).unwrap().is_empty());
 }
+
+#[test]
+fn token_ledger_groups_workflow_models_and_survives_project_deletion() {
+    use changyi_desktop::token_usage as usage;
+    let mut f = Fixture::new();
+    let project = f.create();
+    for id in ["token-run-1", "token-run-2"] {
+        f.db.execute("INSERT INTO AnalysisRun(id,projectId,taskType,inputRangeJson,status,updatedAt) VALUES(?,?,'direction',?,'done',?)", rusqlite::params![id,project,json!({"payload":{"workflowId":"token-workflow"}}).to_string(),database::now()]).unwrap();
+    }
+    let first = usage::begin(&f.db,"token-run-1","model-a").unwrap();
+    usage::finish(&f.db,&first,&json!({"usage":{"prompt_tokens":10,"completion_tokens":5}}),"openai").unwrap();
+    let second = usage::begin(&f.db,"token-run-2","model-b").unwrap();
+    usage::finish(&f.db,&second,&json!({"usage":{"input_tokens":20,"output_tokens":8,"cache_read_input_tokens":2}}),"anthropic").unwrap();
+    let third = usage::begin(&f.db,"token-run-2","model-b").unwrap();
+    usage::finish(&f.db,&third,&Value::Null,"openai").unwrap();
+    let result = usage::summary(&f.db,Some(&project),None).unwrap();
+    assert_eq!(result["task"]["total"],45);
+    assert_eq!(result["global"]["unknown"],1);
+    assert_eq!(usage::summary(&f.db,None,Some("model-a")).unwrap()["global"]["total"],15);
+    drop(f.db);
+    f.db = database::open(f.dir.path()).unwrap();
+    assert_eq!(usage::summary(&f.db,None,None).unwrap()["global"]["total"],45);
+    f.db.execute("DELETE FROM NovelProject WHERE id=?",[project]).unwrap();
+    let result = f.request("GET","/api/token-usage",Value::Null).unwrap();
+    assert_eq!(result["global"]["total"],45);
+    assert_eq!(result["global"]["requests"],3);
+}
+
+#[test]
+fn token_history_migrates_once_and_keeps_missing_usage_unknown() {
+    use changyi_desktop::token_usage as usage;
+    let mut f = Fixture::new();
+    let project = f.create();
+    f.db.execute("DELETE FROM NativeTokenMigration",[]).unwrap();
+    f.db.execute("INSERT INTO AnalysisRun(id,projectId,taskType,status,usageJson,updatedAt) VALUES('legacy-token',?,'direction','done',?,?)",rusqlite::params![project,json!({"promptTokens":7,"completionTokens":3,"totalTokens":10}).to_string(),database::now()]).unwrap();
+    usage::migrate(&f.db).unwrap();
+    usage::migrate(&f.db).unwrap();
+    let pending = usage::begin(&f.db,"legacy-token","unknown-model").unwrap();
+    let result = usage::summary(&f.db,None,None).unwrap();
+    assert_eq!(result["global"]["total"],10);
+    assert_eq!(result["global"]["legacy"],1);
+    assert_eq!(result["global"]["unknown"],1);
+    assert_eq!(result["global"]["pending"],0);
+    usage::finish(&f.db,&pending,&json!({"usage":{"total_tokens":0}}),"openai").unwrap();
+    assert_eq!(usage::summary(&f.db,None,Some("unknown-model")).unwrap()["global"]["total"],0);
+}
+
+#[test]
+fn token_tracking_counts_invalid_output_retry_and_http_failure() {
+    use std::{io::{Read,Write},net::TcpListener};
+    let mut f = Fixture::new();
+    let project=f.create();
+    f.db.execute("INSERT INTO AnalysisRun(id,projectId,taskType,status,updatedAt) VALUES('retry-token',?,'chapter-extract','done',?)",rusqlite::params![project,database::now()]).unwrap();
+    let listener=TcpListener::bind("127.0.0.1:0").unwrap();
+    let address=listener.local_addr().unwrap();
+    let server=std::thread::spawn(move || {
+        for (status,content,input,output) in [(200,"invalid",10,5),(200,r#"{"chapterNote":{"summary":"摘要","excerpt":"原文"}}"#,20,8),(429,"error",3,0)] {
+            let (mut stream,_)=listener.accept().unwrap();
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            let mut bytes=Vec::new();let mut chunk=[0;4096];
+            loop {
+                let size=stream.read(&mut chunk).unwrap(); assert!(size>0);bytes.extend_from_slice(&chunk[..size]);
+                if let Some(end)=bytes.windows(4).position(|x|x==b"\r\n\r\n") {
+                    let headers=String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+                    let length=headers.lines().find_map(|l|l.strip_prefix("content-length:").and_then(|v|v.trim().parse::<usize>().ok())).unwrap();
+                    if bytes.len()>=end+4+length { break; }
+                }
+            }
+            let body=json!({"choices":[{"message":{"content":content}}],"usage":{"prompt_tokens":input,"completion_tokens":output}}).to_string();
+            write!(stream,"HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+        }
+    });
+    let profile=changyi_desktop::model::Profile {provider:"ollama".into(),model:"test".into(),base_url:format!("http://{address}/v1"),is_local:true,api_key:None};
+    changyi_desktop::model::request_tracked(&f.db,"retry-token",&profile,"system","prompt",100,"chapter-extract").unwrap();
+    assert!(changyi_desktop::model::request_tracked(&f.db,"retry-token",&profile,"system","prompt",100,"chapter-extract").is_err());
+    server.join().unwrap();
+    let result=changyi_desktop::token_usage::summary(&f.db,None,None).unwrap();
+    assert_eq!(result["global"]["total"],46);
+    assert_eq!(result["global"]["requests"],3);
+}

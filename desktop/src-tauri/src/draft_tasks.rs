@@ -78,7 +78,9 @@ pub fn run(
         ctx.text,lines.join("\n"),history.text,draft["outlineItemJson"].as_str().unwrap_or("{}"),
         draft["index"],draft["title"].as_str().unwrap_or("（无标题）"),draft["content"].as_str().unwrap_or(""),
         format,if check{"最多 12 个问题，未发现冲突时 issues 为空数组。"}else{"最多 20 条。非悬念条目将标为推断，作者确认后才写入记忆。没有变化时 items 为空数组。"});
-    let (output, usage) = model::request_json(
+    let (output, usage) = model::request_tracked(
+        db,
+        run_id,
         profile,
         system,
         &prompt,

@@ -16,7 +16,7 @@ static RUNNING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 fn running() -> &'static Mutex<HashSet<String>> {
     RUNNING.get_or_init(|| Mutex::new(HashSet::new()))
 }
-fn live(id: &str) -> bool {
+pub(crate) fn live(id: &str) -> bool {
     running().lock().map(|r| r.contains(id)).unwrap_or(false)
 }
 fn decode(row: &Value, field: &str) -> Value {

@@ -40,6 +40,7 @@ pub fn open(directory: &Path) -> Result<Connection> {
     db.execute_batch(include_str!("automation.sql"))
         .map_err(|e| e.to_string())?;
     crate::works::backfill(&db)?;
+    crate::token_usage::migrate(&db)?;
     Ok(db)
 }
 

@@ -93,6 +93,36 @@ pub fn request_json(
     max_tokens: u32,
     task: &str,
 ) -> Result<(Value, Value)> {
+    request_inner(profile, system, prompt, max_tokens, task, None)
+}
+
+pub fn request_tracked(
+    db: &Connection,
+    run_id: &str,
+    profile: &Profile,
+    system: &str,
+    prompt: &str,
+    max_tokens: u32,
+    task: &str,
+) -> Result<(Value, Value)> {
+    request_inner(
+        profile,
+        system,
+        prompt,
+        max_tokens,
+        task,
+        Some((db, run_id)),
+    )
+}
+
+fn request_inner(
+    profile: &Profile,
+    system: &str,
+    prompt: &str,
+    max_tokens: u32,
+    task: &str,
+    tracking: Option<(&Connection, &str)>,
+) -> Result<(Value, Value)> {
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(120))
@@ -127,13 +157,29 @@ pub fn request_json(
                 request
             }
         };
-        let response = request
-            .send()
-            .map_err(|e| format!("无法连接模型接口：{e}"))?;
+        let request_id = tracking
+            .map(|(db, run)| crate::token_usage::begin(db, run, &profile.model))
+            .transpose()?;
+        let response = match request.send() {
+            Ok(response) => response,
+            Err(e) => {
+                if let (Some((db, _)), Some(id)) = (tracking, request_id.as_deref()) {
+                    crate::token_usage::finish(db, id, &Value::Null, &profile.provider)?;
+                }
+                return Err(format!("无法连接模型接口：{e}"));
+            }
+        };
         let status = response.status();
-        let text = response
-            .text()
-            .map_err(|e| format!("读取模型响应失败：{e}"))?;
+        let text_result = response.text();
+        let data = text_result
+            .as_ref()
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .unwrap_or(Value::Null);
+        if let (Some((db, _)), Some(id)) = (tracking, request_id.as_deref()) {
+            crate::token_usage::finish(db, id, &data, &profile.provider)?;
+        }
+        let text = text_result.map_err(|e| format!("读取模型响应失败：{e}"))?;
         if !status.is_success() {
             return Err(format!(
                 "模型接口返回 {}：{}",

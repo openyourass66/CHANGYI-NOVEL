@@ -2,6 +2,7 @@ import Link from "@/compat/link";
 import Image from "@/compat/image";
 import { Suspense } from "react";
 import { NavLinks } from "@/components/nav-links";
+import { TokenUsage } from "@/components/token-usage";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -31,6 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <NavLinks />
             </Suspense>
             <div className="ml-auto flex items-center gap-1">
+              <TokenUsage />
               <ThemeToggle />
             </div>
           </div>

@@ -43,6 +43,7 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
   const [notices, setNotices] = useState<Workflow[]>([]);
   const [dismissed, setDismissed] = useState<string[]>([]);
+  const [completed, setCompleted] = useState<Record<string, number>>({});
   const seen = useRef(new Set<string>());
   const initialized = useRef(false);
   const revalidator = useRevalidator();
@@ -64,7 +65,7 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
           const key = `${row.id}:${row.status}:${row.updatedAt ?? row.run?.finishedAt ?? ""}`;
           if (terminal(row) && !row.notified && !seen.current.has(key)) {
             seen.current.add(key);
-            if (initialized.current) { sound ||= row.sound; changed = true; if (row.kind === "single") setNotices((old) => [row, ...old.filter((w) => w.id !== row.id)]); }
+            if (initialized.current) { sound ||= row.sound; changed = true; if (row.status === "done") setCompleted((old) => ({ ...old, [row.id]: Date.now() + 8000 })); if (row.kind === "single") setNotices((old) => [row, ...old.filter((w) => w.id !== row.id)]); }
           }
           // Retry persistence independently; a failed acknowledgement must not replay the sound.
           if (terminal(row) && !row.notified) void api(`/api/workflows/${row.id}/ack`, "POST").catch(() => {});
@@ -78,7 +79,17 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
     void tick();
     return () => { active = false; clearTimeout(timer); };
   }, []);
-  const visible = workflows.filter((w) => w.kind !== "single" && w.status !== "canceled" && !dismissed.includes(`${w.id}:${w.status}:${w.updatedAt}`)).slice(0, 3);
+  useEffect(() => {
+    const deadlines = Object.values(completed);
+    if (!deadlines.length) return;
+    const timer = setTimeout(() => {
+      const expired = Object.keys(completed).filter((id) => completed[id] <= Date.now());
+      setCompleted((old) => Object.fromEntries(Object.entries(old).filter(([id]) => !expired.includes(id))));
+      setNotices((old) => old.filter((w) => w.status !== "done" || !expired.includes(w.id)));
+    }, Math.max(0, Math.min(...deadlines) - Date.now()));
+    return () => clearTimeout(timer);
+  }, [completed]);
+  const visible = workflows.filter((w) => w.kind !== "single" && (w.status !== "done" || Boolean(completed[w.id])) && w.status !== "canceled" && !dismissed.includes(`${w.id}:${w.status}:${w.updatedAt}`)).slice(0, 3);
   const single = notices;
   async function action(w: Workflow, verb: "cancel" | "resume") {
     try { await api(`/api/workflows/${w.id}/${verb}`, "POST"); setError(""); }

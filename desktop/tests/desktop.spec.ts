@@ -456,7 +456,7 @@ test("automatic continuation survives navigation, reminds once, and opens a read
     const output = outputs[requests++];
     setTimeout(() => {
       response.writeHead(200, { "Content-Type": "application/json" });
-      response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }] }));
+      response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }], usage: { prompt_tokens: 100, completion_tokens: 50 } }));
     }, 500);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -502,6 +502,17 @@ test("automatic continuation survives navigation, reminds once, and opens a read
       return data.workflows.find((w: {kind: string}) => w.kind === "continue")?.notified;
     })).toBe(1);
     expect(await page.evaluate(() => (window as unknown as { reminderTones: number }).reminderTones)).toBe(2);
+    await expect(page.getByText("任务完成", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "查看 Token 用量", exact: true }).click();
+    const usagePanel = page.getByRole("dialog", { name: "Token 用量详情" });
+    await expect(usagePanel).toContainText("900");
+    await expect(usagePanel).toContainText("600");
+    await expect(usagePanel).toContainText("300");
+    await page.getByLabel("筛选用量模型").selectOption("mock");
+    await expect(usagePanel).toContainText("900");
+    await page.screenshot({ path: ".verify/token-usage-actual.png", fullPage: true });
+    await page.getByRole("button", { name: "关闭用量面板", exact: true }).click();
+    await expect(page.getByText("任务完成", { exact: true })).toHaveCount(0, { timeout: 10_000 });
     await page.screenshot({ path: ".verify/works-library.png", fullPage: true });
     await page.locator("article").getByRole("link", { name: "开始阅读", exact: true }).click();
     await expect(page).toHaveURL(/#\/works\//);
@@ -525,6 +536,7 @@ test("automatic continuation survives navigation, reminds once, and opens a read
     await expect.poll(() => page.getByLabel("小说正文").evaluate((element) => element.scrollTop)).toBe(340);
     expect(await page.evaluate(() => (window as unknown as { reminderTones: number }).reminderTones)).toBe(2);
     await page.reload();
+    await expect(page.getByText("任务完成", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "归来", exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window as unknown as { reminderTones: number }).reminderTones)).toBe(0);
     await expect(page.getByRole("button", { name: "编辑本章", exact: true })).toHaveCount(0);

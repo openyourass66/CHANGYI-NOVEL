@@ -300,6 +300,7 @@ fn test_connection(db: &Connection, root: &Path, profile_id: &str) -> Result<Val
         .build()
         .map_err(|e| format!("无法初始化网络请求：{e}"))?;
     let prompt = "回复“ok”两个字符即可。";
+    let usage_id = crate::token_usage::unscoped(db, model)?;
     let result = (|| -> Result<String> {
         let request = if provider == "anthropic" {
             client.post(format!("{}/v1/messages",base.trim_end_matches('/')))
@@ -322,6 +323,8 @@ fn test_connection(db: &Connection, root: &Path, profile_id: &str) -> Result<Val
         let content = response
             .text()
             .map_err(|e| format!("读取模型响应失败：{e}"))?;
+        let usage_data = serde_json::from_str::<Value>(&content).unwrap_or(Value::Null);
+        crate::token_usage::finish(db, &usage_id, &usage_data, provider)?;
         if !status.is_success() {
             return Err(format!(
                 "模型接口返回 {}：{}",

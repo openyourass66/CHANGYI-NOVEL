@@ -938,7 +938,15 @@ fn run_chapter(
     let system="你是一名严谨的小说文本分析师。唯一依据是章节原文。原文即正典，不得编造。每项结论必须附有逐字出现的 excerpt。人物认知区分已知、误信、未知。";
     let prompt=format!("章节标题：{}\n请只输出 JSON：{{\"chapterNote\":{{\"summary\":string,\"excerpt\":string}},\"events\":[{{\"description\":string,\"excerpt\":string}}],\"characters\":[{{\"name\":string,\"state\":string,\"knowledge\":[{{\"infoItem\":string,\"relation\":\"known\"|\"misbelieved\"|\"unknown\",\"excerpt\":string}}],\"excerpt\":string}}],\"settings\":[{{\"name\":string,\"detail\":string,\"excerpt\":string}}],\"threads\":[{{\"title\":string,\"detail\":string,\"state\":\"open\"|\"advanced\"|\"resolved\"|\"uncertain\",\"excerpt\":string}}],\"glossary\":[{{\"term\":string,\"definition\":string,\"excerpt\":string}}]}}\n章节原文：\n———\n{}\n———",
         chapter["rawTitle"].as_str().unwrap_or(""),chapter["content"].as_str().unwrap_or(""));
-    let (output, usage) = model::request_json(profile, system, &prompt, 4096, "chapter-extract")?;
+    let (output, usage) = model::request_tracked(
+        db,
+        run_id,
+        profile,
+        system,
+        &prompt,
+        4096,
+        "chapter-extract",
+    )?;
     if one(
         db,
         "SELECT status FROM AnalysisRun WHERE id=?",
@@ -1133,7 +1141,8 @@ fn run_book(
     }
     let system="你是一名严谨的小说编辑，负责在全书抽取结果之上做统合判断。唯一依据是章节标题、故事记忆与最近原文。不得引入之外的设定、人物或情节；严格区分明述与推断；结局状态只描述文本已到达的状态；拿不准的留作歧义。";
     let prompt=format!("{}\n\n请统合以上内容，只返回 JSON：{{\"overview\":string,\"endingState\":string,\"unresolved\":[{{\"title\":string,\"detail\":string}}],\"constraints\":[string],\"choices\":[string],\"ambiguities\":[string]}}\noverview 为全书概要；endingState 为当前结局状态；unresolved 为未决线索；constraints 为续写约束；choices 为开放选择；ambiguities 为实质歧义。本任务不产出原文出处，结果标记为推断，需经作者确认后才作数。",ctx.text);
-    let (output, usage) = model::request_json(profile, system, &prompt, 4096, "book-synthesis")?;
+    let (output, usage) =
+        model::request_tracked(db, run_id, profile, system, &prompt, 4096, "book-synthesis")?;
     if one(
         db,
         "SELECT status FROM AnalysisRun WHERE id=?",
@@ -1232,7 +1241,8 @@ fn run_direction(
     }
     let system="你是一名小说策划，负责在既有故事之上提出可选续写方向。每个方向必须扎根于记忆与最近原文，不得凭空引入新设定。方向之间应有显著差异；只提出方向，不写正文或章纲，不替作者拍板。";
     let prompt=format!("{}\n\n请提出 3 个差异明显的续写方向，只返回 JSON：{{\"candidates\":[{{\"direction\":string,\"summary\":string,\"relatedThreads\":[string]}}]}}。direction 用一句话命名；summary 说明核心冲突、人物选择与既有悬念关系；relatedThreads 使用已有记忆中的线索标题。",ctx.text);
-    let (output, usage) = model::request_json(profile, system, &prompt, 8192, "direction")?;
+    let (output, usage) =
+        model::request_tracked(db, run_id, profile, system, &prompt, 8192, "direction")?;
     if one(
         db,
         "SELECT status FROM AnalysisRun WHERE id=?",
@@ -1330,7 +1340,8 @@ fn run_outline(
         format!("请为这个方向排出接下来 {count} 章的章纲")
     };
     let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n方向说明中的剧情目标、人物选择、节奏和禁用情节均需遵循；未来构思不能当作已经发生的故事事实。\n\n{}，只返回 JSON：{{\"chapters\":[{{\"title\":string,\"summary\":string,\"beats\":[string],\"relatedThreads\":[string]}}],\"notes\":string,\"conflicts\":[string]}}。如有与既有事实明确冲突，请在 conflicts 逐条指出，并令 chapters 为空。",ctx.text,direction,summary,length_instruction);
-    let (output, usage) = model::request_json(profile, system, &prompt, 8192, "outline")?;
+    let (output, usage) =
+        model::request_tracked(db, run_id, profile, system, &prompt, 8192, "outline")?;
     if one(
         db,
         "SELECT status FROM AnalysisRun WHERE id=?",
@@ -1439,7 +1450,8 @@ fn run_draft(
     let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n【本章章纲（第 {} 章）】\n标题：{}\n走向：{}\n关键节拍：\n{}\n承接线索：{}\n{}\n请写出本章正文，只返回 JSON：{{\"title\":string,\"content\":string}}。content 为 1800–3500 字（不含空白）的自然段正文，不含元信息或 Markdown 标记。",
         ctx.text,plan["direction"].as_str().unwrap_or(""),plan["summary"].as_str().unwrap_or(""),
         index,item["title"].as_str().unwrap_or(""),item["summary"].as_str().unwrap_or(""),beats,related,previous_text);
-    let (output, usage) = model::request_json(profile, system, &prompt, 8000, "draft")?;
+    let (output, usage) =
+        model::request_tracked(db, run_id, profile, system, &prompt, 8000, "draft")?;
     if one(
         db,
         "SELECT status FROM AnalysisRun WHERE id=?",

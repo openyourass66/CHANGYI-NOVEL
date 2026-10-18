@@ -13,8 +13,9 @@ pub mod proposals;
 mod restore;
 pub mod secrets;
 pub mod storage;
-pub mod works;
+pub mod token_usage;
 mod work_merge;
+pub mod works;
 
 #[cfg(feature = "desktop")]
 mod desktop {
