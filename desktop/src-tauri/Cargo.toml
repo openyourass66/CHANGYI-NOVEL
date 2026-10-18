@@ -1,6 +1,6 @@
 [package]
 name = "changyi-desktop"
-version = "0.2.2"
+version = "0.2.3"
 description = "长忆本地小说工作台"
 edition = "2021"
 default-run = "changyi"

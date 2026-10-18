@@ -92,7 +92,7 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
         <div><p className="font-medium">{w.projectName} · {w.kind === "continue" ? "自动续写" : w.kind === "understand" ? "理解全书" : labels[w.currentTask]}</p>
           <p className="mt-1 text-muted-foreground">{terminal(w) ? message(w) : `${labels[w.currentTask] ?? "准备中"}${w.run ? ` · ${w.run.progress.unitsDone} / ${w.run.progress.unitsTotal}` : ""}`}</p></div>
         <div className="flex gap-2">
-          {w.kind === "continue" && <Button asChild variant="outline" size="sm"><Link to={w.workId ? `/works/${w.workId}` : `/projects/${w.projectId}/read${w.planId ? `?plan=${w.planId}` : ""}`}>{w.status === "done" ? "开始阅读" : "阅读已完成章节"}</Link></Button>}
+          {w.workId && <Button asChild variant="outline" size="sm"><Link to={`/works/${w.workId}`}>开始阅读</Link></Button>}
           {w.kind !== "single" && w.status === "running" && <Button variant="outline" size="sm" onClick={() => void action(w, "cancel")}>停止后续任务</Button>}
           {w.kind !== "single" && ["failed", "stalled"].includes(w.status) && <><Button size="sm" onClick={() => void action(w, "resume")}>继续未完成部分</Button><Button variant="outline" size="sm" onClick={() => void action(w, "cancel")}>结束此流程</Button></>}
           {terminal(w) && <Button variant="ghost" size="sm" onClick={() => { setDismissed((old) => [...old, `${w.id}:${w.status}:${w.updatedAt}`]); setNotices((old) => old.filter((n) => n.id !== w.id)); }}>收起提醒</Button>}

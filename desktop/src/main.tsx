@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { createHashRouter, RouterProvider, Outlet, useLoaderData, useRevalidator, useRouteError, Link } from "react-router-dom";
+import { createHashRouter, RouterProvider, Navigate, Outlet, useLoaderData, useRevalidator, useRouteError, Link } from "react-router-dom";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X, KeyRound } from "lucide-react";
@@ -250,10 +250,7 @@ const router = createHashRouter([{
     { path: "/projects/:id/memory", loader: memoryLoader, element: <Memory /> },
     { path: "/projects/:id/analysis", loader: analysisLoader, element: <Analysis /> },
     { path: "/projects/:id/continuation", loader: continuationLoader, element: <Continuation /> },
-    { path: "/projects/:id/read", loader: async ({params}) => {
-      const [workspace, plans] = await Promise.all([workspaceLoader({params}), api<{plans: ContinuationData["plans"]}>(`/api/projects/${params.id}/plans`)]);
-      return {project: workspace.project, plans: plans.plans};
-    }, element: <Reader /> },
+    { path: "/projects/:id/read", element: <Navigate to="/works" replace /> },
     { path: "*", element: <NotFoundPage /> },
   ],
 }]);
