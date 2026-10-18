@@ -96,7 +96,7 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
     catch (e) { setError(String(e)); }
   }
   return <Context.Provider value={workflows}>
-    {(visible.length > 0 || single.length > 0 || error) && <div className="mx-auto w-full max-w-7xl space-y-2 px-6 pt-4" aria-live="polite">
+    {(visible.length > 0 || single.length > 0 || error) && <div className="automation-notices" aria-live="polite">
       {error && <p role="alert" className="text-sm text-destructive">任务状态暂不可用：{error}</p>}
       {[...visible, ...single].map((w) => <WorkflowProgressCard key={w.id} workflow={w} message={message(w)}>
           {w.workId && <Button asChild variant="outline" size="sm"><Link to={`/works/${w.workId}`}>开始阅读</Link></Button>}

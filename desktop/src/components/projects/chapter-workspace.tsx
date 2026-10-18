@@ -52,7 +52,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { CHAPTER_FLAG } from "@/lib/domain";
 import type { ChapterSummary } from "@/lib/chapters-view";
 import { ImportPanel } from "@/components/projects/import-panel";
-import { ProjectNav } from "@/components/projects/project-nav";
+import { PageFrame, ScrollRegion, SearchField } from "@/components/page-frame";
 import { cn } from "@/lib/utils";
 
 type SourceInfo = {
@@ -118,6 +118,8 @@ export function ChapterWorkspace({
   initialChapters: ChapterSummary[];
 }) {
   const [chapters, setChapters] = useState(initialChapters);
+  const [chapterQuery, setChapterQuery] = useState("");
+  const visibleChapters = chapters.filter((c) => c.rawTitle.toLowerCase().includes(chapterQuery.trim().toLowerCase()));
   const [selectedId, setSelectedId] = useState<string | null>(
     initialChapters[0]?.id ?? null,
   );
@@ -201,10 +203,11 @@ export function ChapterWorkspace({
 
   function onListKeyDown(e: React.KeyboardEvent<HTMLUListElement>) {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    if (selectedIndex < 0) return;
+    const visibleIndex = visibleChapters.findIndex((c) => c.id === selectedId);
+    if (visibleIndex < 0) return;
     e.preventDefault();
     const delta = e.key === "ArrowDown" ? 1 : -1;
-    const next = chapters[selectedIndex + delta];
+    const next = visibleChapters[visibleIndex + delta];
     if (!next) return;
     setSelectedId(next.id);
     itemRefs.current.get(next.id)?.focus();
@@ -341,14 +344,8 @@ export function ChapterWorkspace({
 
   if (chapters.length === 0) {
     return (
-      <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 lg:px-6">
-        <ProjectNav projectId={projectId} />
-        <header className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{projectName}</h1>
-          <p className="text-sm text-muted-foreground">
-            尚未导入原文。导入后系统会自动识别章节，你可逐章校对。
-          </p>
-        </header>
+      <PageFrame projectId={projectId} title={projectName} section="章节校对" description="章节校对 · 导入原文后自动识别章节，逐章校准结构。">
+        <ScrollRegion label="导入原文" className="pt-4">
         <Card>
           <CardContent className="pt-6">
             <ImportPanel
@@ -357,7 +354,8 @@ export function ChapterWorkspace({
             />
           </CardContent>
         </Card>
-      </div>
+        </ScrollRegion>
+      </PageFrame>
     );
   }
 
@@ -371,40 +369,7 @@ export function ChapterWorkspace({
       : "";
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 lg:px-6">
-      <ProjectNav projectId={projectId} />
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">{projectName}</h1>
-            {genre && <Badge variant="secondary">{genre}</Badge>}
-          </div>
-          {source && (
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-              <FileText className="size-3.5" aria-hidden />
-              <span>{source.fileName}</span>
-              <span aria-hidden>·</span>
-              <span>{source.formatLabel}</span>
-              <span aria-hidden>·</span>
-              <span>{formatBytes(source.byteSize)}</span>
-              {source.encoding && (
-                <>
-                  <span aria-hidden>·</span>
-                  <span>{source.encoding}</span>
-                </>
-              )}
-              <span aria-hidden>·</span>
-              <span>导入于 {dateFmt.format(new Date(source.importedAt))}</span>
-            </p>
-          )}
-          <p className="text-sm text-muted-foreground">
-            共 {chapters.length} 章
-            {flaggedCount > 0 && (
-              <span className="text-warning"> · {flaggedCount} 章有标记待校对</span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <PageFrame projectId={projectId} title={projectName} section="章节校对" description={<><span>章节校对{genre ? ` · ${genre}` : ""}</span>{source && <span> · {source.fileName} · {source.encoding} · {formatBytes(source.byteSize)}</span>}<span> · 共 {chapters.length} 章{flaggedCount > 0 ? ` · ${flaggedCount} 章待校对` : ""}</span></>} actions={<>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm">
@@ -430,13 +395,10 @@ export function ChapterWorkspace({
           <Button variant="outline" size="sm" onClick={() => setReimportOpen(true)}>
             <RefreshCw className="size-4" />
             重新导入
-          </Button>
-        </div>
-      </header>
-
-      <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
+          </Button></>} toolbar={<><SearchField label="搜索章节标题" value={chapterQuery} onChange={setChapterQuery} /><span className="text-xs text-muted-foreground">{visibleChapters.length} / {chapters.length} 章</span></>}>
+      <div className="workspace-split chapter-split">
         {/* 章节列表 */}
-        <aside className="lg:sticky lg:top-20 lg:h-[calc(100dvh-7rem)]">
+        <aside className="workspace-sidebar">
           <div className="flex h-full flex-col rounded-lg border bg-card">
             <div className="border-b px-3 py-2">
               <h2 className="text-sm font-medium">章节列表</h2>
@@ -447,7 +409,8 @@ export function ChapterWorkspace({
               onKeyDown={onListKeyDown}
               className="flex-1 overflow-y-auto p-1.5"
             >
-              {chapters.map((c, i) => {
+              {visibleChapters.map((c) => {
+                const i = chapters.findIndex((chapter) => chapter.id === c.id);
                 const active = c.id === selectedId;
                 return (
                   <li key={c.id}>
@@ -498,10 +461,10 @@ export function ChapterWorkspace({
         </aside>
 
         {/* 阅读与校对 */}
-        <section className="min-w-0">
+        <section className="chapter-detail">
           {selected ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="chapter-body">
+              <div className="workspace-panel-heading">
                 <div className="min-w-0">
                   <h2 className="truncate text-lg font-semibold">{selected.rawTitle}</h2>
                   <p className="text-xs text-muted-foreground">
@@ -655,7 +618,7 @@ export function ChapterWorkspace({
 
               <Card>
                 <CardContent className="p-0">
-                  <div className="max-h-[calc(100dvh-22rem)] min-h-64 overflow-y-auto px-6 py-6">
+                  <ScrollRegion className="chapter-text-scroll" label="原文阅读区" positionKey={`chapter:${projectId}:${selected.id}`} ready={selectedContent !== undefined}>
                     {loadingContent && selectedContent === undefined ? (
                       <p className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="size-4 animate-spin" />
@@ -687,7 +650,7 @@ export function ChapterWorkspace({
                         {selectedContent ?? ""}
                       </div>
                     )}
-                  </div>
+                  </ScrollRegion>
                 </CardContent>
               </Card>
             </div>
@@ -831,6 +794,6 @@ export function ChapterWorkspace({
           />
         </DialogContent>
       </Dialog>
-    </div>
+    </PageFrame>
   );
 }

@@ -1,7 +1,8 @@
+import { PageFrame } from "@/components/page-frame";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLoaderData } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { BookOpen, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { generationTime, type Work } from "./works";
 import { MergeWorkButton } from "./merge-work-button";
@@ -44,11 +45,7 @@ function WorkReader({ work }: { work: Work }) {
       setError("");
     } catch (e) { setError(String(e)); }
   }
-  return <div className="mx-auto w-full max-w-7xl space-y-5 p-6">
-    <header className="flex flex-wrap items-center justify-between gap-4">
-      <div><h1 className="flex items-center gap-2 text-2xl font-semibold"><BookOpen className="size-6" />{work.title}</h1><p className="mt-1 text-sm text-muted-foreground">生成时间：{generationTime(work.generatedAt)}</p></div>
-      <div className="flex flex-wrap items-center gap-2"><MergeWorkButton work={work} /><Button asChild variant="outline"><Link to="/works">返回作品库</Link></Button></div>
-    </header>
+  return <PageFrame className="reader-page" title={work.title} section="作品阅读" description={`生成时间：${generationTime(work.generatedAt)}`} actions={<><MergeWorkButton work={work} /><Button asChild variant="outline"><Link to="/works">返回作品库</Link></Button></>}>
     <div className="reader-layout" data-reading-theme={preferences.theme}>
       <aside className="reader-directory space-y-4 border-r p-4">
         <div className="space-y-2"><h2 className="text-sm font-semibold">{work.direction}</h2><p className="text-xs opacity-70">来源：{work.sourceProjectName}</p></div>
@@ -56,7 +53,7 @@ function WorkReader({ work }: { work: Work }) {
         <nav aria-label="续写章节目录" className="space-y-1">{chapters.map((item) => <button key={item.id} aria-current={item.id === chapter?.id ? "page" : undefined} className="reader-chapter w-full rounded-md px-3 py-3 text-left text-sm" onClick={() => openChapter(item.id)}>第 {item.index} 章 · {item.title || "无标题"}</button>)}</nav>
         <Button variant="outline" disabled={!chapters.length} onClick={() => void exportText()}>导出全文</Button>
       </aside>
-      <section className="min-w-0">
+      <section className="reader-main min-w-0">
         <div className="reader-toolbar flex flex-wrap items-center gap-4 border-b px-5 py-3 text-sm">
           <label>字号 <input aria-label="阅读字号" type="range" min="16" max="32" value={preferences.size} onChange={(e) => setPreferences({...preferences,size:Number(e.target.value)})} className="w-20 align-middle" /> {preferences.size}</label>
           <label>行距 <select aria-label="阅读行距" value={preferences.line} onChange={(e) => setPreferences({...preferences,line:Number(e.target.value)})} className="reader-select"><option value="1.6">紧凑</option><option value="1.9">舒适</option><option value="2.2">宽松</option></select></label>
@@ -76,5 +73,5 @@ function WorkReader({ work }: { work: Work }) {
         </div>
       </section>
     </div>
-  </div>;
+  </PageFrame>;
 }

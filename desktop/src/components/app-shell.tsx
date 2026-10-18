@@ -9,9 +9,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex min-h-dvh flex-col">
-        <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur-sm">
-          <div className="app-titlebar flex h-14 items-center gap-4 px-4 lg:px-6">
+      <div className="app-shell">
+        <header className="app-header z-40 border-b bg-background/95">
+          <div className="app-titlebar flex h-14 items-center gap-5 px-4 lg:px-8">
             <Link
               href="/"
               aria-label="长亿，返回项目库"
@@ -37,7 +37,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
-        <main id="main" className="flex-1">
+        <main id="main" className="app-main">
           {children}
         </main>
       </div>

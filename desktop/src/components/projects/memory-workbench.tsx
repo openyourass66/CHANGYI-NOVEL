@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notify } from "@/components/operation-prompt";
-import { Download, Loader2, MapPin, Plus, Search, TriangleAlert } from "lucide-react";
+import { Download, MapPin, Plus, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   MEMORY_CATEGORY,
@@ -19,7 +18,7 @@ import type { KeyConflict, KnowledgeView, MemoryEntryView } from "@/lib/memory-v
 import { MemoryEditor, type ChapterOption } from "@/components/projects/memory-editor";
 import { MemoryImportDialog } from "@/components/projects/memory-import-dialog";
 import { KnowledgePanel } from "@/components/projects/knowledge-panel";
-import { ProjectNav } from "@/components/projects/project-nav";
+import { PageFrame, ScrollRegion, SearchField } from "@/components/page-frame";
 
 type MemoryListResponse = {
   entries: MemoryEntryView[];
@@ -75,18 +74,24 @@ export function MemoryWorkbench({
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const requestSequence = useRef(0);
+  const [viewKey, setViewKey] = useState(`${ALL}:`);
+
+  useEffect(() => () => { requestSequence.current += 1; if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
   // 由连续性检查的问题「相关记忆」跳转进来时，把目标条目滚到视野中央并高亮一下。
   useEffect(() => {
     if (!focusEntryId) return;
     const el = rootRef.current?.querySelector<HTMLElement>(`[data-entry-id="${focusEntryId}"]`);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const region = el?.closest<HTMLElement>(".workspace-scroll");
+    if (el && region) region.scrollTop += el.getBoundingClientRect().top - region.getBoundingClientRect().top - (region.clientHeight - el.clientHeight) / 2;
     const timer = window.setTimeout(() => setFlashEntryId(null), 2000);
     return () => window.clearTimeout(timer);
   }, [focusEntryId]);
 
   const load = useCallback(
     async (nextCategory: CategoryFilter, nextQuery: string) => {
+      const sequence = ++requestSequence.current;
       setLoading(true);
       try {
         const p = new URLSearchParams();
@@ -97,19 +102,22 @@ export function MemoryWorkbench({
         });
         const data = (await res.json()) as MemoryListResponse;
         if (!res.ok) throw new Error(data.error ?? "加载失败");
+        if (sequence !== requestSequence.current) return;
+        setViewKey(`${nextCategory}:${nextQuery}`);
         setEntries(data.entries);
         setCounts(data.counts);
         setConflicts(data.conflicts);
       } catch (err) {
-        notify.error(err instanceof Error ? err.message : "加载失败");
+        if (sequence === requestSequence.current) notify.error(err instanceof Error ? err.message : "加载失败");
       } finally {
-        setLoading(false);
+        if (sequence === requestSequence.current) setLoading(false);
       }
     },
     [projectId],
   );
 
   function selectCategory(next: CategoryFilter) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     setCategory(next);
     void load(next, query);
   }
@@ -137,16 +145,7 @@ export function MemoryWorkbench({
   const currentCount = category === ALL ? total : (counts[category] ?? 0);
 
   return (
-    <div ref={rootRef} className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 lg:px-6">
-      <ProjectNav projectId={projectId} />
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1.5">
-          <h1 className="text-2xl font-semibold tracking-tight">{projectName}</h1>
-          <p className="text-sm text-muted-foreground">
-            故事记忆 · 明述与推断分列，出处可回溯到原文；更新生成新版本，人工修改不被覆盖。
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <PageFrame projectId={projectId} title={projectName} section="记忆工作台" description="记忆工作台 · 汇集人物、设定与故事线索，出处可回溯到原文。" actions={<>
           <MemoryImportDialog
             projectId={projectId}
             onImported={() => {
@@ -158,11 +157,11 @@ export function MemoryWorkbench({
               <Download className="size-4" aria-hidden />
               导出记忆（Markdown）
             </a>
-          </Button>
-        </div>
-      </header>
-
-      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="gap-4">
+          </Button></>}>
+      <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="memory-tabs">
+        <div className="page-toolbar">
+          <SearchField label="搜索记忆条目" value={query} onChange={onQueryChange} />
         <TabsList>
           <TabsTrigger value="entries">记忆条目 {total}</TabsTrigger>
           <TabsTrigger value="knowledge">人物认知 {initialKnowledge.length}</TabsTrigger>
@@ -175,31 +174,13 @@ export function MemoryWorkbench({
             )}
           </TabsTrigger>
         </TabsList>
+          {tab === "entries" && <Button className="toolbar-end" onClick={openCreate}><Plus className="size-4" />新建条目</Button>}
+        </div>
 
-        <TabsContent value="entries" className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="relative w-full max-w-xs">
-              <Search
-                className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                value={query}
-                onChange={(e) => onQueryChange(e.target.value)}
-                placeholder="搜索标题、键或内容"
-                className="pl-8"
-                aria-label="搜索记忆条目"
-              />
-            </div>
-            <Button onClick={openCreate}>
-              <Plus className="size-4" />
-              新建条目
-            </Button>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-            <aside aria-label="记忆分类">
-              <div className="rounded-lg border bg-card p-1.5">
+        <TabsContent value="entries">
+          <div className="workspace-split">
+            <aside className="workspace-sidebar" aria-label="记忆分类"><h2 className="workspace-sidebar-heading">记忆分类</h2>
+              <div className="space-y-1">
                 <CategoryButton
                   active={category === ALL}
                   label="全部"
@@ -218,14 +199,11 @@ export function MemoryWorkbench({
               </div>
             </aside>
 
-            <section aria-live="polite" className="space-y-3">
-              {loading && (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                  加载中…
-                </p>
-              )}
-              {!loading && entries.length === 0 && (
+            <section className="workspace-panel" aria-busy={loading}>
+              <div className="workspace-panel-heading"><h2>{category === ALL ? "全部记忆" : MEMORY_CATEGORY[category]}</h2><small role="status">{loading ? "加载中…" : `共 ${currentCount} 条`}</small></div>
+              <ScrollRegion label="记忆条目列表" positionKey={`memory:${projectId}:${viewKey}`}>
+              <div aria-live="polite">
+              {entries.length === 0 && (
                 <div className="rounded-lg border border-dashed p-10 text-center">
                   <p className="text-sm text-muted-foreground">
                     {query.trim() ? "没有匹配的记忆条目。" : "该分类下暂无记忆条目。"}
@@ -236,10 +214,9 @@ export function MemoryWorkbench({
                   </Button>
                 </div>
               )}
-              {!loading && entries.length > 0 && (
+              {entries.length > 0 && (
                 <>
-                  <p className="text-xs text-muted-foreground">共 {currentCount} 条</p>
-                  <ul role="list" className="space-y-2">
+                  <ul role="list" className="memory-list">
                     {entries.map((e) => (
                       <li key={e.id} data-entry-id={e.id}>
                         <button
@@ -297,15 +274,17 @@ export function MemoryWorkbench({
                   </ul>
                 </>
               )}
+              </div></ScrollRegion>
+              <div className="workspace-panel-footer"><span>点击条目查看与编辑，关闭后保留当前位置</span><button onClick={() => rootRef.current?.querySelector('[aria-label="记忆条目列表"]')?.scrollTo({ top: 0, behavior: "instant" })}>回到顶部 ↑</button></div>
             </section>
           </div>
         </TabsContent>
 
-        <TabsContent value="knowledge">
+        <TabsContent value="knowledge"><ScrollRegion label="人物认知列表" className="rounded-lg border bg-card p-5" positionKey={`knowledge:${projectId}`}>
           <KnowledgePanel key={initialKnowledge.map((item) => `${item.id}:${item.relation}:${item.infoItem}`).join(";")} projectId={projectId} initialKnowledge={initialKnowledge} />
-        </TabsContent>
+        </ScrollRegion></TabsContent>
 
-        <TabsContent value="conflicts" className="space-y-3">
+        <TabsContent value="conflicts"><ScrollRegion label="冲突审阅列表" className="space-y-3 rounded-lg border bg-card p-5" positionKey={`conflicts:${projectId}`}>
           {conflicts.length === 0 ? (
             <div className="rounded-lg border border-dashed p-10 text-center">
               <p className="text-sm text-muted-foreground">
@@ -353,7 +332,7 @@ export function MemoryWorkbench({
               </div>
             ))
           )}
-        </TabsContent>
+        </ScrollRegion></TabsContent>
       </Tabs>
 
       {editor && (
@@ -367,7 +346,8 @@ export function MemoryWorkbench({
           onDeleted={afterMutate}
         />
       )}
-    </div>
+      </div>
+    </PageFrame>
   );
 }
 

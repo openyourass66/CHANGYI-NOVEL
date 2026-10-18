@@ -18,7 +18,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -39,9 +38,9 @@ import type { TaskSummary } from "@/lib/ai/tasks/registry";
 import type { ProposalKind, ProposalState, ProposalView } from "@/lib/ai/types";
 import { REQUIREMENT_HINT, requirementMet } from "@/lib/ai/requirements";
 import { stageStatusOf, stageMetaOf } from "@/lib/ai/progress-view";
-import { ProjectNav } from "@/components/projects/project-nav";
+import { TaskWorkspace } from "./task-workspace";
 import { CloudAuthorizeDialog } from "@/components/projects/cloud-authorize-dialog";
-import { StageRail, type Stage } from "@/components/projects/stage-rail";
+import { type Stage } from "@/components/projects/stage-rail";
 import { RunStatusPanel } from "@/components/projects/run-status";
 import { useAnalysisRun } from "@/components/projects/use-analysis-run";
 
@@ -268,26 +267,10 @@ export function AnalysisPanel({
   const blocked = activeStage?.hint ?? null;
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 lg:px-6">
-      <ProjectNav projectId={projectId} />
-      <header className="space-y-1.5">
-        <h1 className="text-2xl font-semibold tracking-tight">{projectName}</h1>
-        <p className="text-sm text-muted-foreground">
-          按步骤理解原文：先逐章抽取积累记忆，再统合全书。提案经你审阅后才写入记忆。
-        </p>
-      </header>
-
-      {/* 步骤轨 + 当前步骤配置 */}
+    <TaskWorkspace projectId={projectId} projectName={projectName} section="理解分析" description="理解分析 · 依据原文提炼记忆，审阅后融入故事。" stages={stages} taskType={taskType} onSelect={setTaskType} running={runActive} modelName={profiles.find((p) => p.id === profileId)?.name} configuration={
       <Card>
         <CardContent className="space-y-4 py-5">
-          <StageRail
-            stages={stages}
-            activeKey={taskType}
-            onSelect={setTaskType}
-            disabled={runActive}
-          />
 
-          <Separator />
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
@@ -413,6 +396,7 @@ export function AnalysisPanel({
           </div>
         </CardContent>
       </Card>
+      }>
 
       {/* 运行状态（常驻，即使没跑过也显示状态说明） */}
       <RunStatusPanel
@@ -570,6 +554,6 @@ export function AnalysisPanel({
           本地模型（Ollama / LM Studio）请求不会离开本机；云端模型需逐次授权。
         </p>
       )}
-    </div>
+    </TaskWorkspace>
   );
 }

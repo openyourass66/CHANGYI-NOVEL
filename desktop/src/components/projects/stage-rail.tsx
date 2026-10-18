@@ -56,14 +56,16 @@ export function StageRail({
   activeKey,
   onSelect,
   disabled = false,
+  vertical = false,
 }: {
   stages: Stage[];
   activeKey: string;
   onSelect: (key: string) => void;
   disabled?: boolean;
+  vertical?: boolean;
 }) {
   return (
-    <ol role="list" className="flex flex-wrap gap-2">
+    <ol role="list" className={vertical ? "stage-sidebar" : "flex flex-wrap gap-2"}>
       {stages.map((stage, i) => {
         const active = stage.key === activeKey;
         return (
