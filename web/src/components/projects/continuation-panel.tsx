@@ -103,7 +103,7 @@ export function ContinuationPanel({
   hasMemory: boolean;
   initialStage: string | null;
   onExportText?: (fileName: string, text: string) => Promise<void>;
-  onAutoContinue?: (planId: string, profileId: string, outlineCount: number) => Promise<void>;
+  onAutoContinue?: (planId: string, profileId: string, outlineCount: number | null) => Promise<void>;
   automationActive?: boolean;
   automationProgress?: AutomaticContinuationProgress;
 }) {
@@ -112,6 +112,7 @@ export function ContinuationPanel({
   );
   const [taskType, setTaskType] = useState(() => initialStage ?? tasks[0]?.type ?? "direction");
   const [outlineCount, setOutlineCount] = useState(5);
+  const [outlineMode, setOutlineMode] = useState<"auto" | "manual">("auto");
   const [taskRuns, setTaskRuns] = useState(initialTaskRuns);
 
   const [plans, setPlans] = useState(initialPlans);
@@ -288,7 +289,7 @@ export function ContinuationPanel({
       taskType,
       profileId,
       payload: needsPlan
-        ? { planId: targetPlan!.id, ...(showOutlineCount ? { outlineCount } : {}) }
+        ? { planId: targetPlan!.id, ...(showOutlineCount ? outlineMode === "auto" ? { outlineMode: "auto" } : { outlineCount, outlineMode: "manual" } : {}) }
         : undefined,
     });
   }
@@ -307,7 +308,7 @@ export function ContinuationPanel({
     setSelectedPlanId(id);
     try {
       if (onAutoContinue) {
-        await onAutoContinue(id, profileId, outlineCount);
+        await onAutoContinue(id, profileId, outlineMode === "auto" ? null : outlineCount);
         await refreshPlans();
         return;
       }
@@ -519,22 +520,23 @@ export function ContinuationPanel({
 
               {(showOutlineCount || showAutomaticCount) && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="cn-count">规划章数</Label>
+                  <Label htmlFor="cn-count">续写章数</Label>
                   <Select
-                    value={String(outlineCount)}
-                    onValueChange={(v) => setOutlineCount(Number(v))}
+                    value={outlineMode}
+                    onValueChange={(value) => setOutlineMode(value as "auto" | "manual")}
+                    disabled={runActive}
                   >
                     <SelectTrigger id="cn-count">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {OUTLINE_COUNT_OPTIONS.map((n) => (
-                        <SelectItem key={n} value={String(n)}>
-                          接下来 {n} 章
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="auto">智能推荐 · 按剧情规划</SelectItem>
+                      <SelectItem value="manual">手动指定章数</SelectItem>
                     </SelectContent>
                   </Select>
+                  {outlineMode === "manual" && <div className="space-y-2 pt-1"><Input aria-label="手动续写章数" type="number" min={1} max={30} step={1} value={outlineCount || ""} disabled={runActive} onChange={(event) => setOutlineCount(Number(event.target.value))} /><div className="flex flex-wrap gap-2">{OUTLINE_COUNT_OPTIONS.map((count) => <Button key={count} variant="outline" size="sm" disabled={runActive} onClick={() => setOutlineCount(count)}>{count} 章</Button>)}</div></div>}
+                  <p className="text-xs text-muted-foreground">{outlineMode === "auto" ? "不用先决定章数，模型会依据方向与剧情安排合适篇幅，通常为 3–8 章。已有章纲时沿用章纲。" : "可指定 1–30 章。已有章纲时沿用章纲；需要调整时，可在生成章纲步骤编辑。"}</p>
+                  {outlineMode === "manual" && (!Number.isInteger(outlineCount) || outlineCount < 1 || outlineCount > 30) && <p role="alert" className="text-xs text-destructive">请输入 1–30 之间的整数章数。</p>}
                 </div>
               )}
             </div>
@@ -554,6 +556,7 @@ export function ContinuationPanel({
                 busy ||
                 runActive ||
                 profiles.length === 0 ||
+                (showOutlineCount && outlineMode === "manual" && (!Number.isInteger(outlineCount) || outlineCount < 1 || outlineCount > 30)) ||
                 (showOutlineCount && Boolean(targetPlan?.draftCount))
               }
             >

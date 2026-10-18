@@ -19,6 +19,7 @@ export type RunPayload = {
   outlineIndex?: number;
   /** 章纲规划的目标章节数（缺省由任务决定）。 */
   outlineCount?: number;
+  outlineMode?: "auto" | "manual";
 };
 
 /** 一个处理单元。逐章任务的单元即章节；整项目任务的单元由任务自定义。 */

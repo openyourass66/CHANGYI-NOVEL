@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLoaderData } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { BookOpen, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { generationTime, type Work } from "./works";
+import { MergeWorkButton } from "./merge-work-button";
 
 type Preferences = { size: number; line: number; width: number; theme: string };
 function stored<T>(key: string, fallback: T): T {
@@ -24,14 +25,18 @@ function WorkReader({ work }: { work: Work }) {
   const index = Math.max(0, chapters.findIndex((item) => item.id === chapterId));
   const chapter = chapters[index];
   const positionKey = `${progressKey}:${work.id}:${chapter?.id ?? ""}`;
+  function openChapter(id: string) {
+    localStorage.setItem(`${progressKey}:${work.id}:${id}`, "0");
+    viewport.current?.focus({ preventScroll: true });
+    if (id === chapter?.id && viewport.current) viewport.current.scrollTop = 0;
+    setChapterId(id);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
   useEffect(() => { localStorage.setItem("native-reader-preferences", JSON.stringify(preferences)); }, [preferences]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!chapter) return;
     localStorage.setItem(progressKey, JSON.stringify({ chapter: chapter.id }));
-    const frame = requestAnimationFrame(() => {
-      if (viewport.current) viewport.current.scrollTop = Math.max(0, Number(localStorage.getItem(positionKey)) || 0);
-    });
-    return () => cancelAnimationFrame(frame);
+    if (viewport.current) viewport.current.scrollTop = Math.max(0, Number(localStorage.getItem(positionKey)) || 0);
   }, [chapter?.id, positionKey, progressKey]);
   async function exportText() {
     try {
@@ -42,13 +47,13 @@ function WorkReader({ work }: { work: Work }) {
   return <div className="mx-auto w-full max-w-7xl space-y-5 p-6">
     <header className="flex flex-wrap items-center justify-between gap-4">
       <div><h1 className="flex items-center gap-2 text-2xl font-semibold"><BookOpen className="size-6" />{work.title}</h1><p className="mt-1 text-sm text-muted-foreground">生成时间：{generationTime(work.generatedAt)}</p></div>
-      <Button asChild variant="outline"><Link to="/works">返回作品库</Link></Button>
+      <div className="flex flex-wrap items-center gap-2"><MergeWorkButton work={work} /><Button asChild variant="outline"><Link to="/works">返回作品库</Link></Button></div>
     </header>
     <div className="reader-layout" data-reading-theme={preferences.theme}>
       <aside className="reader-directory space-y-4 border-r p-4">
         <div className="space-y-2"><h2 className="text-sm font-semibold">{work.direction}</h2><p className="text-xs opacity-70">来源：{work.sourceProjectName}</p></div>
         <h2 className="text-sm font-medium">目录 · {chapters.length} 章</h2>
-        <nav aria-label="续写章节目录" className="space-y-1">{chapters.map((item) => <button key={item.id} aria-current={item.id === chapter?.id ? "page" : undefined} className="reader-chapter w-full rounded-md px-3 py-3 text-left text-sm" onClick={() => setChapterId(item.id)}>第 {item.index} 章 · {item.title || "无标题"}</button>)}</nav>
+        <nav aria-label="续写章节目录" className="space-y-1">{chapters.map((item) => <button key={item.id} aria-current={item.id === chapter?.id ? "page" : undefined} className="reader-chapter w-full rounded-md px-3 py-3 text-left text-sm" onClick={() => openChapter(item.id)}>第 {item.index} 章 · {item.title || "无标题"}</button>)}</nav>
         <Button variant="outline" disabled={!chapters.length} onClick={() => void exportText()}>导出全文</Button>
       </aside>
       <section className="min-w-0">
@@ -65,7 +70,7 @@ function WorkReader({ work }: { work: Work }) {
             <h2 className="mb-8 text-2xl font-semibold">{chapter.title || "无标题"}</h2>
             <div className="reader-prose">{chapter.content.split(/\n+/).filter(Boolean).map((paragraph,i) => <p key={i}>{paragraph}</p>)}</div>
             <footer className="mt-12 flex flex-wrap items-center justify-between gap-3 border-t pt-6 text-sm">
-              <Button variant="ghost" disabled={index === 0} onClick={() => setChapterId(chapters[index-1].id)}><ChevronLeft className="size-4" />上一章</Button><span>{index+1} / {chapters.length}</span><Button variant="ghost" disabled={index >= chapters.length-1} onClick={() => setChapterId(chapters[index+1].id)}>下一章<ChevronRight className="size-4" /></Button>
+              <Button variant="ghost" disabled={index === 0} onClick={() => openChapter(chapters[index-1].id)}><ChevronLeft className="size-4" />上一章</Button><span>{index+1} / {chapters.length}</span><Button variant="ghost" disabled={index >= chapters.length-1} onClick={() => openChapter(chapters[index+1].id)}>下一章<ChevronRight className="size-4" /></Button>
             </footer>
           </article>}
         </div>

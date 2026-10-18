@@ -62,14 +62,14 @@ const SINGLE_UNIT: TaskUnit = { id: "outline", label: "章纲" };
 async function buildPrompt(
   contextBlock: string,
   plan: { direction: string; summary: string | null },
-  count: number,
+  count: number | null,
 ): Promise<string> {
   return [
     contextBlock,
     "",
     renderDirection(plan),
     "",
-    `请为这个方向排出接下来 ${count} 章的章纲，字段名与结构严格如下：`,
+    count === null ? "请根据方向、故事记忆和本段剧情目标智能安排章数，通常 3–8 章，最多 30 章；以自然完成本段剧情为准，不凑章数，并在 notes 中说明篇幅安排理由。字段名与结构严格如下：" : `请为这个方向排出接下来 ${count} 章的章纲，字段名与结构严格如下：`,
     RETURN_FIELDS,
     "",
     FIELD_GUIDE,
@@ -86,7 +86,7 @@ async function runUnit(_unit: TaskUnit, ctx: Parameters<TaskDefinition["runUnit"
   });
   if (!plan) return { usage: {}, produced: 0 };
 
-  const count = ctx.payload.outlineCount ?? DEFAULT_OUTLINE_COUNT;
+  const count = ctx.payload.outlineMode === "auto" ? null : ctx.payload.outlineCount ?? DEFAULT_OUTLINE_COUNT;
   const context = await buildContinuationContext(ctx.projectId, { lastN: 2 });
   const res = await requestJson(ctx.profile, {
     system: SYSTEM,
@@ -125,6 +125,9 @@ export const outlineTask: TaskDefinition = {
   promptVersion: PROMPT_VERSION,
   maxTokens: 8192,
   async validate({ projectId, payload }) {
+    if (payload.outlineMode !== "auto" && payload.outlineCount !== undefined && (!Number.isInteger(payload.outlineCount) || payload.outlineCount < 1 || payload.outlineCount > 30)) {
+      throw new AnalysisError("续写章数应为 1–30 的整数。");
+    }
     await assertHasMemory(projectId);
     const planId = await resolvePlanId(projectId, payload.planId);
     const draftCount = await prisma.draftChapter.count({ where: { projectId, planId } });
@@ -144,13 +147,13 @@ export const outlineTask: TaskDefinition = {
       prisma.continuationPlan.findUnique({ where: { id: planId }, select: { direction: true, summary: true } }),
       buildContinuationContext(projectId, { lastN: 2 }),
     ]);
-    const count = payload.outlineCount ?? DEFAULT_OUTLINE_COUNT;
+    const count = payload.outlineMode === "auto" ? null : payload.outlineCount ?? DEFAULT_OUTLINE_COUNT;
     return {
       unitCount: 1,
       unitLabel: "项",
       totalChars: ctx.totalChars + (plan ? renderDirection(plan).length : 0),
       sampleText: plan ? renderDirection(plan) : "",
-      note: `依据方向「${plan?.direction ?? ""}」与 ${ctx.memory.entryCount} 条记忆，规划接下来 ${count} 章的章纲，写入该方向并使其版本号 +1。${NO_SOURCE_NOTE}`,
+      note: `依据方向「${plan?.direction ?? ""}」与 ${ctx.memory.entryCount} 条记忆，${count === null ? "按剧情智能规划章数" : `规划接下来 ${count} 章的章纲`}，写入该方向并使其版本号 +1。${NO_SOURCE_NOTE}`,
     };
   },
 };

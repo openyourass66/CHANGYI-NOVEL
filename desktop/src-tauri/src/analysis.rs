@@ -1267,6 +1267,10 @@ fn run_outline(
     {
         return Err("这个方向已有草稿，不能直接重生成章纲。".into());
     }
+    let automatic = payload["outlineMode"] == "auto";
+    if !automatic && payload.get("outlineCount").is_some_and(|value| !value.is_null() && value.as_u64().is_none()) {
+        return Err("章纲目标数量应为整数。".into());
+    }
     let count = payload["outlineCount"].as_u64().unwrap_or(5);
     if !(1..=30).contains(&count) {
         return Err("章纲目标数量无效。".into());
@@ -1275,7 +1279,10 @@ fn run_outline(
     let direction = plan["direction"].as_str().unwrap_or("");
     let summary = plan["summary"].as_str().unwrap_or("");
     let system="你是一名小说结构师，负责为已选定方向排出接下来若干章的章纲。严格服务于方向，每章推进核心冲突；不得推翻既有事实。只排章纲，不写正文。若作者要求与既有事实存在明确冲突，返回 conflicts 并令 chapters 为空。";
-    let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n方向说明中的剧情目标、人物选择、节奏和禁用情节均需遵循；未来构思不能当作已经发生的故事事实。\n\n请为这个方向排出接下来 {} 章的章纲，只返回 JSON：{{\"chapters\":[{{\"title\":string,\"summary\":string,\"beats\":[string],\"relatedThreads\":[string]}}],\"notes\":string,\"conflicts\":[string]}}。如有与既有事实明确冲突，请在 conflicts 逐条指出，并令 chapters 为空。",ctx.text,direction,summary,count);
+    let length_instruction = if automatic {
+        "请根据方向、故事记忆和本段剧情目标智能安排章数，通常 3–8 章，最多 30 章；以自然完成本段剧情为准，不凑章数，并在 notes 中说明篇幅安排理由".to_string()
+    } else { format!("请为这个方向排出接下来 {count} 章的章纲") };
+    let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n方向说明中的剧情目标、人物选择、节奏和禁用情节均需遵循；未来构思不能当作已经发生的故事事实。\n\n{}，只返回 JSON：{{\"chapters\":[{{\"title\":string,\"summary\":string,\"beats\":[string],\"relatedThreads\":[string]}}],\"notes\":string,\"conflicts\":[string]}}。如有与既有事实明确冲突，请在 conflicts 逐条指出，并令 chapters 为空。",ctx.text,direction,summary,length_instruction);
     let (output, usage) = model::request_json(profile, system, &prompt, 8192, "outline")?;
     if one(
         db,

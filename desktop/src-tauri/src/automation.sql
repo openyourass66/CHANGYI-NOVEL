@@ -49,3 +49,20 @@ CREATE TABLE IF NOT EXISTS NativeWorkChapter (
  content TEXT NOT NULL,
  UNIQUE(workId,"index")
 );
+CREATE TABLE IF NOT EXISTS NativeWorkMemory (
+ id TEXT PRIMARY KEY,
+ workId TEXT NOT NULL REFERENCES NativeWork(id) ON DELETE CASCADE,
+ chapterIndex INTEGER NOT NULL,
+ sourceProposalId TEXT NOT NULL,
+ payloadJson TEXT NOT NULL,
+ UNIQUE(workId,sourceProposalId)
+);
+CREATE TABLE IF NOT EXISTS NativeWorkMerge (
+ workId TEXT PRIMARY KEY REFERENCES NativeWork(id) ON DELETE CASCADE,
+ projectId TEXT REFERENCES NovelProject(id) ON DELETE SET NULL,
+ mergedAt INTEGER NOT NULL,
+ chapterCount INTEGER NOT NULL,
+ memoryAdded INTEGER NOT NULL,
+ memoryConflicts INTEGER NOT NULL,
+ memorySkipped INTEGER NOT NULL
+);

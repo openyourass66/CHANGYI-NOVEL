@@ -204,7 +204,13 @@ fn current_head(db: &Connection, target_id: &str, project_id: &str) -> Result<Va
 
 pub(crate) fn accept(db: &mut Connection, proposal_id: &str) -> Result<Value> {
     let tx = db.transaction().map_err(|e| e.to_string())?;
-    let row = proposal(&tx, proposal_id)?;
+    let response = accept_in_transaction(&tx, proposal_id)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(response)
+}
+
+pub(crate) fn accept_in_transaction(tx: &Connection, proposal_id: &str) -> Result<Value> {
+    let row = proposal(tx, proposal_id)?;
     if row["state"] != "pending" {
         return Ok(json!({"proposal":view_one(&tx, proposal_id)?}));
     }
@@ -256,7 +262,6 @@ pub(crate) fn accept(db: &mut Connection, proposal_id: &str) -> Result<Value> {
     }
     reconcile_draft(&tx, draft_id)?;
     let response = json!({"proposal":view_one(&tx, proposal_id)?,"message":message});
-    tx.commit().map_err(|e| e.to_string())?;
     Ok(response)
 }
 

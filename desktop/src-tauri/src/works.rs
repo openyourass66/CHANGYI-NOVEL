@@ -1,6 +1,7 @@
 use crate::database::{execute, id, one, query, Result};
 use rusqlite::Connection;
 use serde_json::{json, Value};
+use std::path::Path;
 
 // The archive owns its text; source links may disappear without deleting a work.
 pub fn archive(db: &Connection, workflow: &Value, generated_at: i64) -> Result<String> {
@@ -50,13 +51,18 @@ pub fn archive(db: &Connection, workflow: &Value, generated_at: i64) -> Result<S
             ],
         )?;
     }
+    capture_memory(db, &work_id)?;
     Ok(work_id)
+}
+fn capture_memory(db: &Connection, work_id: &str) -> Result<()> {
+    let rows = query(db, "SELECT p.*,c.\"index\" AS workChapterIndex FROM NativeWork w JOIN NativeWorkChapter c ON c.workId=w.id JOIN NativeWorkflow f ON f.id=w.workflowId JOIN DraftChapter d ON d.projectId=w.sourceProjectId AND d.planId=json_extract(f.configJson,'$.planId') AND d.\"index\"=c.\"index\" AND d.content=c.content JOIN MemoryProposal p ON p.draftId=d.id JOIN AnalysisRun r ON r.id=p.runId WHERE w.id=? AND p.state!='rejected' AND r.taskType='draft-memory' AND json_extract(r.inputRangeJson,'$.payload.workflowId')=w.workflowId", &[json!(work_id)])?;
+    for row in rows {
+        execute(db,"INSERT OR IGNORE INTO NativeWorkMemory(id,workId,chapterIndex,sourceProposalId,payloadJson) VALUES(?,?,?,?,?)", &[json!(id()),json!(work_id),row["workChapterIndex"].clone(),row["id"].clone(),json!(row.to_string())])?;
+    }
+    Ok(())
 }
 pub fn backfill(db: &Connection) -> Result<()> {
     let rows=query(db,"SELECT w.*,CAST(w.updatedAt AS INTEGER) AS finishedMillis FROM NativeWorkflow w JOIN ContinuationPlan p ON p.id=json_extract(w.configJson,'$.planId') AND p.projectId=w.projectId WHERE w.kind='continue' AND w.status='done' AND NOT EXISTS (SELECT 1 FROM NativeWork k WHERE k.workflowId=w.id) AND EXISTS (SELECT 1 FROM DraftChapter d WHERE d.planId=p.id)", &[])?;
-    if rows.is_empty() {
-        return Ok(());
-    }
     let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
     for row in rows {
         archive(
@@ -65,12 +71,16 @@ pub fn backfill(db: &Connection) -> Result<()> {
             row["finishedMillis"].as_i64().ok_or("历史流程时间无效。")?,
         )?;
     }
+    for work in query(&tx,"SELECT id FROM NativeWork WHERE deletedAt IS NULL AND NOT EXISTS (SELECT 1 FROM NativeWorkMerge m WHERE m.workId=NativeWork.id)", &[])? {
+        capture_memory(&tx, work["id"].as_str().ok_or("作品编号无效。")?)?;
+    }
     tx.commit().map_err(|e| e.to_string())
 }
-pub fn route(db: &mut Connection, method: &str, parts: &[&str]) -> Option<Result<Value>> {
+pub fn route(db: &mut Connection, root: &Path, method: &str, parts: &[&str], body: &Value) -> Option<Result<Value>> {
     Some(match (method, parts) {
         ("GET", ["api", "works"]) => list(db),
         ("GET", ["api", "works", work]) => detail(db, work).map(|work| json!({"work":work})),
+        ("POST", ["api", "works", work, "merge"]) => if body["confirmed"] != true { Err("请先确认将正文和记忆并入原作。".into()) } else { crate::work_merge::merge(db, root, work) },
         ("DELETE", ["api", "works", work]) => (|| {
             let tx = db.transaction().map_err(|e| e.to_string())?;
             execute(
@@ -78,6 +88,7 @@ pub fn route(db: &mut Connection, method: &str, parts: &[&str]) -> Option<Result
                 "UPDATE NativeWork SET deletedAt=? WHERE id=? AND deletedAt IS NULL",
                 &[json!(crate::database::now()), json!(work)],
             )?;
+            execute(&tx,"DELETE FROM NativeWorkMemory WHERE workId=?", &[json!(work)])?;
             execute(
                 &tx,
                 "DELETE FROM NativeWorkChapter WHERE workId=?",
@@ -90,11 +101,14 @@ pub fn route(db: &mut Connection, method: &str, parts: &[&str]) -> Option<Result
     })
 }
 fn list(db: &Connection) -> Result<Value> {
-    let rows=query(db,"SELECT w.id,w.title,w.sourceProjectId,w.sourceProjectName,w.direction,w.generatedAt,COUNT(c.id) AS chapterCount,COALESCE(SUM(LENGTH(c.content)),0) AS charCount FROM NativeWork w LEFT JOIN NativeWorkChapter c ON c.workId=w.id WHERE w.deletedAt IS NULL GROUP BY w.id ORDER BY w.generatedAt DESC,w.id", &[])?;
+    let rows=query(db,"SELECT w.id,w.title,w.sourceProjectId,w.sourceProjectName,w.direction,w.generatedAt,m.mergedAt,COUNT(c.id) AS chapterCount,COALESCE(SUM(LENGTH(c.content)),0) AS charCount,(SELECT COUNT(*) FROM NativeWorkMemory n WHERE n.workId=w.id) AS memoryCount FROM NativeWork w LEFT JOIN NativeWorkChapter c ON c.workId=w.id LEFT JOIN NativeWorkMerge m ON m.workId=w.id WHERE w.deletedAt IS NULL GROUP BY w.id ORDER BY w.generatedAt DESC,w.id", &[])?;
     Ok(json!({"works":rows}))
 }
 fn detail(db: &Connection, id: &str) -> Result<Value> {
-    let mut work=one(db,"SELECT id,title,sourceProjectId,sourceProjectName,direction,generatedAt FROM NativeWork WHERE id=? AND deletedAt IS NULL", &[json!(id)])?;
-    work["chapters"]=json!(query(db,"SELECT id,\"index\",title,content,1 AS version FROM NativeWorkChapter WHERE workId=? ORDER BY \"index\"", &[json!(id)])?);
+    let mut work=one(db,"SELECT w.id,w.title,w.sourceProjectId,w.sourceProjectName,w.direction,w.generatedAt,m.mergedAt,(SELECT COUNT(*) FROM NativeWorkMemory n WHERE n.workId=w.id) AS memoryCount FROM NativeWork w LEFT JOIN NativeWorkMerge m ON m.workId=w.id WHERE w.id=? AND w.deletedAt IS NULL", &[json!(id)])?;
+    let chapters = query(db,"SELECT id,\"index\",title,content,1 AS version FROM NativeWorkChapter WHERE workId=? ORDER BY \"index\"", &[json!(id)])?;
+    work["chapterCount"] = json!(chapters.len());
+    work["charCount"] = json!(chapters.iter().map(|chapter| chapter["content"].as_str().unwrap_or("").chars().count()).sum::<usize>());
+    work["chapters"] = json!(chapters);
     Ok(work)
 }

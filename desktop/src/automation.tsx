@@ -120,20 +120,21 @@ export function AutomationSettings() {
   </CardContent></Card>;
 }
 export function useAutoContinue(projectId: string, profiles: ProfileView[]) {
-  const [pending, setPending] = useState<{ planId: string; profileId: string; outlineCount: number } | null>(null);
+  const [pending, setPending] = useState<{ planId: string; profileId: string; outlineCount: number | null } | null>(null);
   const [preview, setPreview] = useState<RunPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const start = async (args: NonNullable<typeof pending>, authorized: boolean) => {
-    await api(`/api/projects/${projectId}/workflows`, "POST", { ...args, kind: "continue", authorized });
+    await api(`/api/projects/${projectId}/workflows`, "POST", { ...args, outlineMode: args.outlineCount === null ? "auto" : "manual", kind: "continue", authorized });
     setPending(null); setPreview(null);
   };
-  const request = async (planId: string, profileId: string, outlineCount: number) => {
+  const request = async (planId: string, profileId: string, outlineCount: number | null) => {
     const profile = profiles.find((p) => p.id === profileId);
     if (!profile) throw new Error("请先在设置中添加模型档案。");
+    if (outlineCount !== null && (!Number.isInteger(outlineCount) || outlineCount < 1 || outlineCount > 30)) throw new Error("请输入 1–30 之间的整数章数。");
     const args = { planId, profileId, outlineCount };
     if (profile.isLocal) { await start(args,false); return; }
     const { preview: result } = await api<{preview: RunPreview}>(`/api/projects/${projectId}/analysis/preview`, "POST", { taskType: "direction", profileId });
-    setPreview({ ...result, taskLabel: "自动续写完整流程", note: `本次授权包含章纲、缺失章节正文、连续性检查和记忆变化提取。已有章纲会复用，否则规划 ${outlineCount} 章。数据包括已有故事记忆、最近原文、方向说明、章纲及本方向已生成的正文。失败后可继续未完成部分。` });
+    setPreview({ ...result, taskLabel: "自动续写完整流程", note: `本次授权包含章纲、缺失章节正文、连续性检查和记忆变化提取。已有章纲会复用，否则${outlineCount === null ? "由模型根据剧情智能安排章数" : `规划 ${outlineCount} 章`}。数据包括已有故事记忆、最近原文、方向说明、章纲及本方向已生成的正文。失败后可继续未完成部分。` });
     setPending(args);
   };
   const dialog = <CloudAuthorizeDialog open={Boolean(pending)} preview={preview} authorizing={busy} onOpenChange={(open) => { if (!open) setPending(null); }} onConfirm={() => {

@@ -217,13 +217,16 @@ pub fn start(db: &mut Connection, root: &Path, project: &str, body: &Value) -> R
         let outline: Value =
             serde_json::from_str(plan["outlineJson"].as_str().unwrap_or("[]")).unwrap_or(json!([]));
         if outline.as_array().is_none_or(Vec::is_empty) {
+            let automatic = body["outlineMode"] == "auto";
+            if !automatic && body.get("outlineCount").is_some_and(|value| !value.is_null() && value.as_u64().is_none()) {
+                return Err("续写章数应为 1–30 的整数。".into());
+            }
             let count = body["outlineCount"].as_u64().unwrap_or(5);
             if !(1..=30).contains(&count) {
                 return Err("续写章数应为 1–30。".into());
             }
-            steps.push(
-                json!({"taskType":"outline","payload":{"planId":plan_id,"outlineCount":count}}),
-            );
+            steps.push(if automatic { json!({"taskType":"outline","payload":{"planId":plan_id,"outlineMode":"auto"}}) }
+                else { json!({"taskType":"outline","payload":{"planId":plan_id,"outlineCount":count}}) });
         }
         // Existing chapters are preserved; draft task only generates missing chapters.
         let count = query(

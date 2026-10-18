@@ -14,6 +14,7 @@ mod restore;
 pub mod secrets;
 pub mod storage;
 pub mod works;
+mod work_merge;
 
 #[cfg(feature = "desktop")]
 mod desktop {

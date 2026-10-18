@@ -43,7 +43,7 @@ pub fn dispatch(db: &mut Connection, root: &Path, req: &ApiRequest) -> Result<Va
         .split('/')
         .collect();
     let body = &req.body;
-    if let Some(result) = crate::works::route(db, &req.method, &parts) {
+    if let Some(result) = crate::works::route(db, root, &req.method, &parts, body) {
         return result;
     }
     if let Some(result) = crate::automation::route(db, root, &req.method, &parts, body) {

@@ -207,6 +207,14 @@ test("analysis calls a local model and shows a proposal for review", async ({ pa
 test("continuation saves a manual direction and outline", async ({ page }) => {
   await createProject(page, "方向验收小说");
   await page.getByRole("link", { name: "续写规划" }).click();
+  await expect(page.getByLabel("续写章数", { exact: true })).toContainText("智能推荐");
+  await page.getByLabel("续写章数", { exact: true }).click();
+  await page.getByRole("option", { name: "手动指定章数", exact: true }).click();
+  await page.getByLabel("手动续写章数", { exact: true }).fill("12");
+  await expect(page.getByLabel("手动续写章数", { exact: true })).toHaveValue("12");
+  await page.getByLabel("续写章数", { exact: true }).click();
+  await page.getByRole("option", { name: "智能推荐 · 按剧情规划", exact: true }).click();
+  await expect(page.getByLabel("手动续写章数", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "自定义方向" }).first().click();
   await page.locator("#direction-name").fill("追查旧案");
   await page.locator("#direction-summary").fill("主角回到旧城，查清十年前的失踪案。");
@@ -431,7 +439,7 @@ test("automatic continuation survives navigation, reminds once, and opens a read
   const outputs = [
     { title: "出发", content: Array(40).fill(prose).join("\n\n") },
     { title: "归来", content: Array(40).fill("同伴归来。" + prose).join("\n\n") },
-    { issues: [] }, { issues: [] }, { items: [] }, { items: [] },
+    { issues: [] }, { issues: [] }, { items: [{ category: "chapter-note", key: "", title: "", content: "主角已与同伴重逢。" }] }, { items: [] },
   ];
   let requests = 0;
   const server = createServer((_request, response) => {
@@ -490,8 +498,14 @@ test("automatic continuation survives navigation, reminds once, and opens a read
     await expect(page.getByRole("heading", { name: "出发", exact: true })).toBeVisible();
     await page.getByLabel("阅读字号").fill("24");
     await page.getByLabel("阅读背景").selectOption("sepia");
+    await page.getByLabel("小说正文").evaluate((element) => { element.scrollTop = 480; element.dispatchEvent(new Event("scroll")); });
     await page.getByRole("button", { name: "下一章", exact: true }).click();
     await expect(page.getByRole("heading", { name: "归来", exact: true })).toBeVisible();
+    await expect.poll(() => page.getByLabel("小说正文").evaluate((element) => element.scrollTop)).toBe(0);
+    await page.getByRole("button", { name: "上一章", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "出发", exact: true })).toBeVisible();
+    await expect.poll(() => page.getByLabel("小说正文").evaluate((element) => element.scrollTop)).toBe(0);
+    await page.getByRole("button", { name: "下一章", exact: true }).click();
     await page.getByLabel("小说正文").evaluate((element) => { element.scrollTop = 340; element.dispatchEvent(new Event("scroll")); });
     await page.getByRole("link", { name: "返回作品库", exact: true }).click();
     await page.locator("article").getByRole("link", { name: "开始阅读", exact: true }).click();
@@ -512,5 +526,18 @@ test("automatic continuation survives navigation, reminds once, and opens a read
     await page.goto(`/#/projects/${projectId}/read`);
     await expect(page).toHaveURL(/#\/works$/);
     await expect(page.locator("article")).toHaveCount(1);
+    await page.locator("article").getByRole("button", { name: "一键并入原作", exact: true }).click();
+    await expect(page.getByRole("alertdialog")).toContainText("确认并入原作");
+    await page.getByRole("button", { name: "取消", exact: true }).click();
+    expect(await page.evaluate(async (id) => (await (await fetch(`/api/projects/${id}/chapters`)).json()).chapters.length, projectId)).toBe(0);
+    await page.locator("article").getByRole("button", { name: "一键并入原作", exact: true }).click();
+    await page.getByRole("button", { name: "确认并入", exact: true }).click();
+    await expect(page.getByRole("dialog")).toContainText("1 条记忆已加入记忆工作台");
+    await page.getByRole("button", { name: "知道了", exact: true }).click();
+    await expect(page.locator("article").getByRole("button", { name: "已并入原作", exact: true })).toBeDisabled();
+    await page.goto(`/#/projects/${projectId}`);
+    await expect(page.getByRole("heading", { name: "第1章 出发", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "记忆工作台", exact: true }).click();
+    await expect(page.getByText("主角已与同伴重逢。", { exact: true })).toBeVisible();
   } finally { server.close(); }
 });

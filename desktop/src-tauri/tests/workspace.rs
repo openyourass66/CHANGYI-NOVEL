@@ -1730,7 +1730,99 @@ fn automatic_continuation_retries_only_missing_work_and_keeps_draft_memory_pendi
     let archived = f.request("GET", "/api/works", Value::Null).unwrap();
     assert_eq!(archived["works"].as_array().unwrap().len(), 1);
     assert_eq!(archived["works"][0]["chapterCount"], 2);
-    assert_eq!(server.join().unwrap().len(), 9);
+    assert_eq!(archived["works"][0]["memoryCount"], 2);
+    let work_id = archived["works"][0]["id"].as_str().unwrap();
+    let original = f.request("GET", &format!("/api/projects/{p}/workspace"), Value::Null).unwrap();
+    let original_path = f.dir.path().join(original["source"]["storedPath"].as_str().unwrap());
+    let original_bytes = fs::read(&original_path).unwrap();
+    assert!(f.request("POST", &format!("/api/works/{work_id}/merge"), Value::Null).is_err());
+    f.request("DELETE", &format!("/api/projects/{p}/plans/{plan}"), Value::Null).unwrap();
+    let merged = f.request("POST", &format!("/api/works/{work_id}/merge"), json!({"confirmed":true})).unwrap();
+    assert_eq!(merged["merge"]["chapterCount"], 2);
+    assert_eq!(merged["merge"]["memoryAdded"], 2);
+    assert_eq!(merged["merge"]["memoryConflicts"], 0);
+    let workspace = f.request("GET", &format!("/api/projects/{p}/workspace"), Value::Null).unwrap();
+    assert_eq!(workspace["chapters"].as_array().unwrap().len(), 3);
+    assert_eq!(workspace["chapters"][0]["id"], original["chapters"][0]["id"]);
+    assert_eq!(fs::read(original_path).unwrap(), original_bytes);
+    let memory = database::query(&f.db,"SELECT * FROM MemoryEntry WHERE projectId=? AND isCurrent=1", &[json!(p)]).unwrap();
+    assert_eq!(memory.len(), 3);
+    assert!(memory.iter().any(|row| row["content"] == "主角和同伴归来。"));
+    let again = f.request("POST", &format!("/api/works/{work_id}/merge"), json!({"confirmed":true})).unwrap();
+    assert_eq!(again["alreadyMerged"], true);
+    assert_eq!(f.request("GET", &format!("/api/projects/{p}/chapters"), Value::Null).unwrap()["chapters"].as_array().unwrap().len(), 3);
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 9);
+    assert!(requests[0].contains("接下来 2 章"));
+}
+
+fn merge_fixture() -> (Fixture, String, String, String) {
+    let mut fixture = Fixture::new();
+    let project = fixture.create();
+    fixture.import(&project, "第一章 原作\n原作内容😀保持不变。");
+    let hero = fixture.request("POST", &format!("/api/projects/{project}/memory"),json!({"category":"character","key":"hero","title":"主角","content":"作者保留的人设","status":"confirmed","citations":[]})).unwrap()["entry"]["id"].as_str().unwrap().to_string();
+    let work = database::id();
+    database::execute(&fixture.db,"INSERT INTO NativeWork(id,workflowId,title,sourceProjectId,sourceProjectName,direction,generatedAt) VALUES(?,?,?,?,?,?,?)", &[json!(work),json!(database::id()),json!("待并入作品"),json!(project),json!("测试小说"),json!("归来"),json!(database::now())]).unwrap();
+    database::execute(&fixture.db,"INSERT INTO NativeWorkChapter(id,workId,\"index\",title,content) VALUES(?,?,1,'归来','新续写😀正文。')", &[json!(database::id()),json!(work)]).unwrap();
+    for memory in [json!({"category":"chapter-note","key":null,"title":"归来记忆","content":"合并回滚验证","status":"inferred","state":"pending","targetEntryId":null}),json!({"category":"character","key":"hero","title":"主角","content":"模型更新人设","status":"inferred","state":"pending","targetEntryId":hero})] {
+        database::execute(&fixture.db,"INSERT INTO NativeWorkMemory(id,workId,chapterIndex,sourceProposalId,payloadJson) VALUES(?,?,1,?,?)", &[json!(database::id()),json!(work),json!(database::id()),json!(memory.to_string())]).unwrap();
+    }
+    (fixture, project, work, hero)
+}
+
+#[test]
+fn work_merge_is_atomic_preserves_manual_memory_and_uses_utf16_offsets() {
+    let (mut f, project, work, hero) = merge_fixture();
+    let sources = f.dir.path().join(format!("projects/{project}/sources"));
+    let before_files = fs::read_dir(&sources).unwrap().count();
+    f.db.execute_batch("CREATE TRIGGER reject_merged_memory BEFORE INSERT ON MemoryEntry WHEN NEW.content='合并回滚验证' BEGIN SELECT RAISE(ABORT,'模拟记忆写入失败'); END;").unwrap();
+    assert!(f.request("POST",&format!("/api/works/{work}/merge"),json!({"confirmed":true})).is_err());
+    assert_eq!(database::query(&f.db,"SELECT id FROM Chapter WHERE projectId=?", &[json!(project)]).unwrap().len(),1);
+    assert_eq!(database::query(&f.db,"SELECT id FROM SourceDocument WHERE projectId=?", &[json!(project)]).unwrap().len(),1);
+    assert!(database::query(&f.db,"SELECT * FROM NativeWorkMerge", &[]).unwrap().is_empty());
+    assert_eq!(fs::read_dir(&sources).unwrap().count(),before_files);
+    f.db.execute_batch("DROP TRIGGER reject_merged_memory").unwrap();
+    let result = f.request("POST",&format!("/api/works/{work}/merge"),json!({"confirmed":true})).unwrap();
+    assert_eq!(result["merge"]["memoryAdded"],1);
+    assert_eq!(result["merge"]["memoryConflicts"],1);
+    assert_eq!(database::one(&f.db,"SELECT content FROM MemoryEntry WHERE id=?", &[json!(hero)]).unwrap()["content"],"作者保留的人设");
+    let chapter = database::one(&f.db,"SELECT * FROM Chapter WHERE projectId=? ORDER BY sortOrder DESC LIMIT 1", &[json!(project)]).unwrap();
+    assert_eq!(chapter["normalizedIndex"],2);
+    assert_eq!(chapter["rawTitle"],"第2章 归来");
+    let source = database::one(&f.db,"SELECT storedPath FROM SourceDocument WHERE id=?", &[chapter["sourceDocumentId"].clone()]).unwrap();
+    let text = fs::read_to_string(f.dir.path().join(source["storedPath"].as_str().unwrap())).unwrap();
+    let utf16 = text.encode_utf16().collect::<Vec<_>>();
+    assert_eq!(String::from_utf16(&utf16[chapter["startOffset"].as_u64().unwrap() as usize..chapter["endOffset"].as_u64().unwrap() as usize]).unwrap(),"新续写😀正文。");
+    assert!(f.request("GET",&format!("/api/works/{work}"),Value::Null).unwrap()["work"]["mergedAt"].is_string());
+}
+
+#[test]
+fn work_merge_requires_an_idle_existing_original() {
+    let (mut f, project, work, _) = merge_fixture();
+    let workflow = database::id();
+    database::execute(&f.db,"INSERT INTO NativeWorkflow(id,projectId,kind,stepsJson,configJson,createdAt,updatedAt) VALUES(?,?,'continue','[]','{}',?,?)", &[json!(workflow),json!(project),json!(database::now()),json!(database::now())]).unwrap();
+    assert!(f.request("POST",&format!("/api/works/{work}/merge"),json!({"confirmed":true})).unwrap_err().contains("任务运行"));
+    database::execute(&f.db,"UPDATE NativeWorkflow SET status='canceled' WHERE id=?", &[json!(workflow)]).unwrap();
+    f.request("DELETE",&format!("/api/projects/{project}"),Value::Null).unwrap();
+    assert!(f.request("POST",&format!("/api/works/{work}/merge"),json!({"confirmed":true})).unwrap_err().contains("原作已删除"));
+    assert_eq!(f.request("GET",&format!("/api/works/{work}"),Value::Null).unwrap()["work"]["chapters"][0]["content"],"新续写😀正文。");
+}
+
+#[test]
+fn automatic_outline_recommends_length_from_the_direction() {
+    let (address, server) = automation_mock(vec![json!({"chapters":[{"title":"归来","summary":"完成本段寻人目标","beats":[],"relatedThreads":[]}],"notes":"一个章节即可完成本段剧情","conflicts":[]}),automation_draft("归来"),json!({"issues":[]}),json!({"items":[]})]);
+    let mut f = Fixture::new(); let project = f.create();
+    f.import(&project,"原作内容。");
+    f.request("POST",&format!("/api/projects/{project}/memory"),json!({"category":"chapter-note","content":"主角已出发。","status":"inferred","citations":[]})).unwrap();
+    let plan = f.request("POST",&format!("/api/projects/{project}/plans"),json!({"direction":"找到同伴后结束本段剧情","summary":"简洁收束"})).unwrap()["plan"]["id"].as_str().unwrap().to_string();
+    let profile = automation_profile(&mut f,&address);
+    let started = f.request("POST",&format!("/api/projects/{project}/workflows"),json!({"kind":"continue","profileId":profile,"planId":plan,"outlineMode":"auto"})).unwrap();
+    let finished = wait_workflow(&mut f,started["workflowId"].as_str().unwrap(),"done");
+    assert_eq!(finished["plan"]["outline"].as_array().unwrap().len(),1);
+    assert_eq!(finished["steps"][0]["payload"]["outlineMode"],"auto");
+    let requests = server.join().unwrap();
+    assert!(requests[0].contains("智能安排章数"));
+    assert!(!requests[0].contains("接下来 5 章"));
 }
 
 #[test]
