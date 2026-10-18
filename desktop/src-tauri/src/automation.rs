@@ -128,12 +128,36 @@ pub fn route(
     })
 }
 fn list(db: &Connection) -> Result<Value> {
+    let snapshot = db.unchecked_transaction().map_err(|e| e.to_string())?;
+    let result = list_snapshot(&snapshot)?;
+    snapshot.commit().map_err(|e| e.to_string())?;
+    Ok(result)
+}
+fn list_snapshot(db: &Connection) -> Result<Value> {
     let mut rows = query(db,"SELECT w.*,p.name AS projectName,k.id AS workId FROM NativeWorkflow w JOIN NovelProject p ON p.id=w.projectId LEFT JOIN NativeWork k ON k.workflowId=w.id AND k.deletedAt IS NULL ORDER BY w.createdAt DESC", &[])?;
     for row in &mut rows {
         let steps = decode(row, "stepsJson");
         row["steps"] = steps.clone();
         row["planId"] = decode(row, "configJson")["planId"].clone();
-        row["currentTask"] = steps[row["step"].as_u64().unwrap_or(0) as usize]["taskType"].clone();
+        let index = row["step"].as_u64().unwrap_or(0) as usize;
+        row["currentTask"] = steps.as_array().and_then(|items| items.get(index).or_else(|| items.last()))
+            .map(|step| step["taskType"].clone()).unwrap_or(Value::Null);
+        let runs = query(db, "SELECT id,taskType FROM AnalysisRun WHERE projectId=? AND json_extract(inputRangeJson,'$.payload.workflowId')=? ORDER BY createdAt DESC",
+            &[row["projectId"].clone(),row["id"].clone()])?;
+        let mut task_runs = serde_json::Map::new();
+        for run in runs {
+            if let Some(task) = run["taskType"].as_str() {
+                if !task_runs.contains_key(task) {
+                    task_runs.insert(task.to_string(), analysis::status(db, run["id"].as_str().ok_or("任务不存在。")?)?);
+                }
+            }
+        }
+        row["taskRuns"] = Value::Object(task_runs);
+        row["plan"] = if let (Some(project), Some(plan)) = (row["projectId"].as_str(), row["planId"].as_str()) {
+            if query(db,"SELECT id FROM ContinuationPlan WHERE id=? AND projectId=?", &[json!(plan),json!(project)])?.is_empty() {
+                Value::Null
+            } else { crate::continuation::plan(db, project, plan)? }
+        } else { Value::Null };
         row["sound"] = json!(true);
         if row["status"] == "running" && !live(row["id"].as_str().unwrap_or("")) {
             row["status"] = json!("stalled");

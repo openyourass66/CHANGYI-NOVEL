@@ -77,13 +77,15 @@ export function StageRail({
                 "flex min-h-11 w-full items-start gap-2.5 rounded-lg border p-3 text-left transition-colors duration-150",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 active ? "border-ring bg-accent" : "border-border bg-card hover:bg-muted/60",
-                disabled && "pointer-events-none opacity-60",
+                stage.status === "running" && "border-primary bg-primary/10 ring-1 ring-primary/30",
+                disabled && "pointer-events-none",
               )}
             >
               <span
                 className={cn(
                   "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium tabular-nums",
                   active ? "border-ring text-foreground" : "border-border text-muted-foreground",
+                  stage.status === "running" && "border-primary bg-primary text-primary-foreground motion-safe:animate-pulse",
                 )}
                 aria-hidden
               >

@@ -45,6 +45,7 @@ import type {
   ContinuationPlanView,
   DraftChapterView,
   OutlineItem,
+  AutomaticContinuationProgress,
 } from "@/lib/continuation-view";
 import type { ProfileView } from "@/lib/ai/profiles";
 import type { RunStatusView } from "@/lib/ai/runner";
@@ -90,6 +91,7 @@ export function ContinuationPanel({
   onExportText,
   onAutoContinue,
   automationActive = false,
+  automationProgress,
 }: {
   projectId: string;
   projectName: string;
@@ -103,6 +105,7 @@ export function ContinuationPanel({
   onExportText?: (fileName: string, text: string) => Promise<void>;
   onAutoContinue?: (planId: string, profileId: string, outlineCount: number) => Promise<void>;
   automationActive?: boolean;
+  automationProgress?: AutomaticContinuationProgress;
 }) {
   const [profileId, setProfileId] = useState(
     () => profiles.find((p) => p.isDefault)?.id ?? profiles[0]?.id ?? "",
@@ -129,11 +132,28 @@ export function ContinuationPanel({
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [previousData, setPreviousData] = useState({ plans: initialPlans, runs: initialTaskRuns });
+  const [previousAutomation, setPreviousAutomation] = useState<AutomaticContinuationProgress | undefined>(undefined);
   if (previousData.plans !== initialPlans || previousData.runs !== initialTaskRuns) {
     setPreviousData({ plans: initialPlans, runs: initialTaskRuns });
     setPlans(initialPlans);
     setTaskRuns(initialTaskRuns);
     setReloadKey((value) => value + 1);
+  }
+  if (previousAutomation !== automationProgress) {
+    setPreviousAutomation(automationProgress);
+    if (automationProgress && (automationProgress.status === "running" || previousAutomation?.status === "running" || previousAutomation?.id !== automationProgress.id)) {
+      if (automationProgress.plan) {
+        const plan = automationProgress.plan;
+        setPlans((previous) => [plan, ...previous.filter((item) => item.id !== plan.id)]);
+      }
+      if (automationProgress.status === "running") {
+        if (automationProgress.currentTask) setTaskType(automationProgress.currentTask);
+        if (automationProgress.planId) setSelectedPlanId(automationProgress.planId);
+      }
+      if (previousAutomation?.run?.id !== automationProgress.run?.id || previousAutomation?.run?.progress.unitsDone !== automationProgress.run?.progress.unitsDone || previousAutomation?.status !== automationProgress.status) {
+        setReloadKey((value) => value + 1);
+      }
+    }
   }
 
   const activeTask = tasks.find((t) => t.type === taskType) ?? tasks[0];
@@ -204,9 +224,14 @@ export function ContinuationPanel({
 
   /** 某一步骤要展示的运行：进行中的那次优先，否则用该步骤的服务端最近一次。 */
   function runForStage(key: string): RunStatusView | null {
-    const stored = taskRuns[key] ?? null;
-    const candidate = hookRun?.taskType === key && (!stored || hookRun.createdAt >= stored.createdAt) ? hookRun : stored;
-    return candidate?.payload.planId && candidate.payload.planId !== targetPlanId ? null : candidate;
+    if (automationProgress?.status === "running" && automationProgress.planId === targetPlanId && automationProgress.currentTask === key) {
+      return automationProgress.run?.taskType === key ? automationProgress.run : automationProgress.taskRuns?.[key] ?? null;
+    }
+    const candidates = [taskRuns[key], hookRun?.taskType === key ? hookRun : null, automationProgress?.taskRuns?.[key], automationProgress?.run?.taskType === key ? automationProgress.run : null];
+    return candidates.reduce<RunStatusView | null>((latest, candidate) => {
+      if (!candidate || (candidate.payload.planId && candidate.payload.planId !== targetPlanId)) return latest;
+      return !latest || candidate.createdAt >= latest.createdAt ? candidate : latest;
+    }, null);
   }
 
   const requirementState = {
@@ -227,14 +252,23 @@ export function ContinuationPanel({
           : t.requirement === "drafts"
             ? `当前方向 ${targetPlan?.draftCount ?? 0} 章草稿`
             : null;
+    const automated = automationProgress?.planId === targetPlanId ? automationProgress : null;
+    const automatedSteps = automated?.steps ?? [];
+    const automatedIndex = automatedSteps.findIndex((step) => step.taskType === t.type);
+    const authoritative = automated && (automated.status === "running" || !stageRun || stageRun.id === automated.taskRuns?.[t.type]?.id);
+    const currentAutomated = authoritative && automated.currentTask === t.type && ["running", "failed", "stalled"].includes(automated.status);
+    const saving = currentAutomated && automated.status === "running" && automatedSteps.length > 0 && (automated.step ?? 0) >= automatedSteps.length;
+    const reused = authoritative && automatedIndex < 0 && ((t.type === "outline" && (targetPlan?.outline.length ?? 0) > 0) || (t.type === "draft" && (targetPlan?.draftCount ?? 0) > 0));
+    const completedAutomatically = authoritative && automatedIndex >= 0 && automatedIndex < (automated.step ?? 0);
+    const automaticStatus = saving ? "done" : currentAutomated ? automated.status === "running" ? "running" : automated.status === "failed" ? "failed" : "stalled" : completedAutomatically || reused ? "done" : null;
     return {
       key: t.type,
       label: t.type === "direction" ? "确定续写方向" : t.label,
       description: t.type === "direction" ? "自己填写构思，或让 AI 生成候选方向。" : t.description,
-      status: t.type === "direction" && plans.length > 0 && !["running", "pending"].includes(stageRun?.status ?? "")
-        ? "done" : stageStatusOf(stageRun),
-      meta: t.type === "direction" ? `共 ${plans.length} 个方向` : stageMetaOf(stageRun) ?? fallbackMeta,
-      hint: t.type === "direction" ? null : met || !t.requirement ? null : REQUIREMENT_HINT[t.requirement],
+      status: automaticStatus ?? (t.type === "direction" && plans.length > 0 && !["running", "pending"].includes(stageRun?.status ?? "")
+        ? "done" : stageStatusOf(stageRun)),
+      meta: saving ? "已完成，正在保存作品…" : reused ? `复用已有${t.type === "outline" ? "章纲" : "草稿"}` : currentAutomated && !stageRun ? "准备执行…" : t.type === "direction" ? `共 ${plans.length} 个方向` : stageMetaOf(stageRun) ?? fallbackMeta,
+      hint: t.type === "direction" || currentAutomated || completedAutomatically || reused ? null : met || !t.requirement ? null : REQUIREMENT_HINT[t.requirement],
     };
   });
 
@@ -540,7 +574,9 @@ export function ContinuationPanel({
         run={displayRun}
         producedLabel={PRODUCED_LABEL[taskType] ?? "项"}
         idleHint={
-          taskType === "direction"
+          automationProgress?.status === "running" && automationProgress.currentTask === taskType
+            ? "自动续写正在准备本步骤，进度会自动更新。"
+            : taskType === "direction"
             ? "可以添加自定义方向，或使用上方的 AI 生成候选方向。"
             : blocked
               ? `这个步骤还没有运行过。${blocked}。`

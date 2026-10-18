@@ -139,6 +139,7 @@ function Continuation() {
   const automatic = useAutoContinue(data.project.id, data.profiles);
   const workflows = useWorkflows();
   const active = workflows.some((w) => w.projectId === data.project.id && w.status === "running");
+  const progress = workflows.find((w) => w.projectId === data.project.id && w.kind === "continue" && w.status !== "canceled");
   const tasks: import("@/lib/ai/tasks/registry").TaskSummary[]=[
     {type:"direction",label:"生成续写方向",scope:"project",unitLabel:"项",
       description:"依据记忆与最近原文，提出 3 个差异明显的续写方向供你择一。",requirement:"memory"},
@@ -155,6 +156,7 @@ function Continuation() {
     profiles={data.profiles} tasks={tasks} initialPlans={data.plans} initialRun={data.run}
     taskRuns={data.taskRuns} hasMemory={data.hasMemory} initialStage={data.run?.taskType ?? null}
     onAutoContinue={automatic.request} automationActive={active}
+    automationProgress={progress}
     onExportText={async(fileName,text)=>{await invoke("save_text",{fileName,text});}}/>{automatic.dialog}</>;
 }
 

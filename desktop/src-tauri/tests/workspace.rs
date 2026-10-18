@@ -1677,6 +1677,11 @@ fn automatic_continuation_retries_only_missing_work_and_keeps_draft_memory_pendi
     let workflow = started["workflowId"].as_str().unwrap();
     let failed = wait_workflow(&mut f, workflow, "failed");
     assert_eq!(failed["step"], 1, "{failed}");
+    assert_eq!(failed["currentTask"], "draft");
+    assert_eq!(failed["taskRuns"]["outline"]["status"], "done");
+    assert_eq!(failed["taskRuns"]["draft"]["status"], "failed");
+    assert_eq!(failed["plan"]["outline"].as_array().unwrap().len(), 2);
+    assert_eq!(failed["plan"]["draftCount"], 1);
     let before = f
         .request(
             "GET",
@@ -1691,7 +1696,11 @@ fn automatic_continuation_retries_only_missing_work_and_keeps_draft_memory_pendi
         Value::Null,
     )
     .unwrap();
-    wait_workflow(&mut f, workflow, "done");
+    let completed = wait_workflow(&mut f, workflow, "done");
+    assert_eq!(completed["currentTask"], "draft-memory");
+    assert_eq!(completed["taskRuns"].as_object().unwrap().len(), 4);
+    assert!(completed["taskRuns"].as_object().unwrap().values().all(|run| run["status"] == "done"));
+    assert_eq!(completed["plan"]["draftCount"], 2);
     let after = f
         .request(
             "GET",

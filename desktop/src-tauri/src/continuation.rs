@@ -78,7 +78,7 @@ fn plan_view(mut row: Value, draft_count: i64) -> Value {
     row
 }
 
-fn plan(db: &Connection, project_id: &str, plan_id: &str) -> Result<Value> {
+pub(crate) fn plan(db: &Connection, project_id: &str, plan_id: &str) -> Result<Value> {
     let row = one(
         db,
         "SELECT * FROM ContinuationPlan WHERE id=? AND projectId=?",

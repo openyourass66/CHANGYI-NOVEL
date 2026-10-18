@@ -337,6 +337,84 @@ test("continuation steps isolate results by stage and selected direction", async
   await page.screenshot({ path: ".verify/continuation-memory-step.png", fullPage: true });
 });
 
+test("automatic progress follows all four stages and keeps the rail and results synchronized", async ({ page }) => {
+  const outputs = [
+    { chapters: [{ title: "启程", summary: "主角出发寻找同伴", beats: [], relatedThreads: [] }], notes: "", conflicts: [] },
+    { title: "启程", content: "主角沿着故乡的石板路向前走，远处的钟声在山间回荡。他记得临行前的约定，决定先找到旧日的同伴，再一同查明事情的经过。眼前的街巷安静如常，新的旅程从这里开始。" },
+    { issues: [] }, { items: [] }, { title: "启程", content: "过短" }, { title: "启程", content: "仍然过短" },
+  ];
+  const releases: (() => void)[] = [];
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    const index = requests++;
+    releases[index] = () => {
+      if (response.writableEnded) return;
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(outputs[index]) } }] }));
+    };
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === "string") throw new Error("Mock unavailable");
+    await createProject(page, "进度同步验收");
+    await page.evaluate(async (baseUrl) => {
+      const id = location.hash.match(/projects\/([^/?]+)/)![1];
+      async function post(path: string, body: unknown) {
+        const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        if (!response.ok) throw new Error(await response.text()); return response.json();
+      }
+      await post(`/api/projects/${id}/memory`, { category: "character", title: "主角", content: "主角已归乡", status: "confirmed", citations: [] });
+      await post(`/api/projects/${id}/plans`, { direction: "同步验证方向", summary: "主角出发寻找同伴" });
+      await post(`/api/projects/${id}/plans`, { direction: "其他方向", summary: "这个方向不能混入自动流程" });
+      await post("/api/model-profiles", { name: "同步模型", provider: "ollama", model: "mock", baseUrl, isLocal: true });
+    }, `http://127.0.0.1:${address.port}/v1`);
+    await page.getByRole("link", { name: "续写规划", exact: true }).click();
+    await page.getByLabel("续写方向结果").locator("li").filter({ hasText: "同步验证方向" }).getByRole("button", { name: "选定此方向并开始续写", exact: true }).click();
+    const top = page.getByRole("region", { name: "进度同步验收 · 自动续写进度", exact: true });
+    const labels = ["生成章纲", "生成草稿", "检查连续性", "提取记忆变化"];
+    const regions = ["章纲结果", "草稿结果", "连续性检查结果", "记忆变化结果"];
+    for (let index = 0; index < labels.length; index++) {
+      await expect.poll(() => requests).toBe(index + 1);
+      await expect(top.locator("[data-current-task]")).toHaveText(labels[index]);
+      await expect(top.getByRole("progressbar")).toHaveAttribute("aria-valuenow", String((index + 1) * 20));
+      await expect(top).toContainText(`第 ${index + 2} / 5 步`);
+      const step = page.getByRole("button", { name: new RegExp(`^${labels[index]} `) }).first();
+      await expect(step).toHaveAttribute("aria-current", "step");
+      await expect(step).toContainText("进行中");
+      await expect(page.getByLabel(regions[index], { exact: true })).toBeVisible();
+      await expect(page.getByLabel("续写方向结果", { exact: true })).toHaveCount(0);
+      await expect(page.getByLabel("目标方向", { exact: true })).toContainText("同步验证方向");
+      if (index === 2) {
+        await page.reload();
+        await expect(top.locator("[data-current-task]")).toHaveText("检查连续性");
+        await expect(step).toHaveAttribute("aria-current", "step");
+      }
+      if (index > 0) await expect(page.getByRole("button", { name: new RegExp(`^${labels[index - 1]} `) }).first()).toContainText("已完成");
+      if (index === 3) {
+        await page.screenshot({ path: ".verify/workflow-progress-light.png", fullPage: true });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await expect(top.locator(".workflow-progress-shimmer")).toHaveCSS("animation-name", "none");
+        await page.getByRole("button", { name: "切换主题", exact: true }).click();
+        await page.getByRole("menuitem", { name: "深色", exact: true }).click();
+        await page.screenshot({ path: ".verify/workflow-progress-dark.png", fullPage: true });
+      }
+      releases[index]();
+    }
+    await expect(top.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100", { timeout: 15_000 });
+    await expect(top.locator(".workflow-progress-shimmer")).toHaveCount(0);
+    await expect(top.getByRole("link", { name: "开始阅读", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^提取记忆变化 / }).first()).toContainText("已完成");
+    await page.getByRole("button", { name: /^生成章纲 / }).first().click();
+    await expect(page.getByLabel("章纲结果", { exact: true })).toContainText("启程");
+    await page.getByRole("button", { name: /^生成草稿 / }).first().click();
+    await page.getByLabel("草稿结果").getByRole("button", { name: "重新生成", exact: true }).click();
+    await expect.poll(() => requests).toBe(5); releases[4]();
+    await expect.poll(() => requests).toBe(6); releases[5]();
+    await expect(page.getByRole("button", { name: /^生成草稿 / }).first()).toContainText("失败");
+    expect(requests).toBe(6);
+  } finally { releases.forEach((release) => release()); server.close(); }
+});
+
 test("automatic continuation survives navigation, reminds once, and opens a reader with saved progress", async ({ page }) => {
   await page.addInitScript(() => {
     const state = window as unknown as { reminderTones: number };

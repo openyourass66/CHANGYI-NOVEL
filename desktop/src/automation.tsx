@@ -7,11 +7,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CloudAuthorizeDialog } from "@/components/projects/cloud-authorize-dialog";
 import type { ProfileView } from "@/lib/ai/profiles";
 import type { RunPreview } from "@/lib/ai/preview";
-import type { RunStatusView } from "@/lib/ai/runner";
+import { taskLabels as labels, type Workflow } from "./workflow-progress";
+import { WorkflowProgressCard } from "./workflow-progress-card";
 
 type Settings = { autoAccept: boolean; autoSynthesis: boolean };
-type Workflow = { id: string; projectId: string; projectName: string; kind: string; planId?: string; workId?: string; status: string; currentTask: string; step: number; steps: unknown[]; run: RunStatusView | null; error?: string; notified: number; sound: boolean; updatedAt?: string };
-const labels: Record<string, string> = { "chapter-extract": "逐章理解", "book-synthesis": "全书统合", outline: "生成章纲", draft: "生成正文", "continuity-check": "检查连续性", "draft-memory": "提取记忆变化", direction: "生成续写方向" };
 const Context = createContext<Workflow[]>([]);
 export const useWorkflows = () => useContext(Context);
 let audio: AudioContext | undefined;
@@ -37,7 +36,7 @@ function message(w: Workflow) {
   if (w.status === "failed") return w.error || w.run?.error || "任务未能完成，请处理后继续";
   if (w.kind === "continue") return "续写完成，已保存到作品库；检查问题和记忆提案可在续写规划中查看";
   if (w.kind === "understand") return "理解分析完成；冲突及待审阅记忆可在理解分析中查看";
-  return w.currentTask === "direction" ? "候选方向已生成，请选择续写方向" : `${labels[w.currentTask] ?? "任务"}完成`;
+  return w.currentTask === "direction" ? "候选方向已生成，请选择续写方向" : `${labels[w.currentTask ?? ""] ?? "任务"}完成`;
 }
 export function AutomationProvider({ children }: { children: ReactNode }) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -88,17 +87,13 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
   return <Context.Provider value={workflows}>
     {(visible.length > 0 || single.length > 0 || error) && <div className="mx-auto w-full max-w-7xl space-y-2 px-6 pt-4" aria-live="polite">
       {error && <p role="alert" className="text-sm text-destructive">任务状态暂不可用：{error}</p>}
-      {[...visible, ...single].map((w) => <div key={w.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 text-sm">
-        <div><p className="font-medium">{w.projectName} · {w.kind === "continue" ? "自动续写" : w.kind === "understand" ? "理解全书" : labels[w.currentTask]}</p>
-          <p className="mt-1 text-muted-foreground">{terminal(w) ? message(w) : `${labels[w.currentTask] ?? "准备中"}${w.run ? ` · ${w.run.progress.unitsDone} / ${w.run.progress.unitsTotal}` : ""}`}</p></div>
-        <div className="flex gap-2">
+      {[...visible, ...single].map((w) => <WorkflowProgressCard key={w.id} workflow={w} message={message(w)}>
           {w.workId && <Button asChild variant="outline" size="sm"><Link to={`/works/${w.workId}`}>开始阅读</Link></Button>}
           {w.kind !== "single" && w.status === "running" && <Button variant="outline" size="sm" onClick={() => void action(w, "cancel")}>停止后续任务</Button>}
           {w.kind !== "single" && ["failed", "stalled"].includes(w.status) && <><Button size="sm" onClick={() => void action(w, "resume")}>继续未完成部分</Button><Button variant="outline" size="sm" onClick={() => void action(w, "cancel")}>结束此流程</Button></>}
           {terminal(w) && <Button variant="ghost" size="sm" onClick={() => { setDismissed((old) => [...old, `${w.id}:${w.status}:${w.updatedAt}`]); setNotices((old) => old.filter((n) => n.id !== w.id)); }}>收起提醒</Button>}
-          {terminal(w) && <Button asChild variant="ghost" size="sm"><Link to={`/projects/${w.projectId}/${w.kind === "understand" || ["chapter-extract","book-synthesis"].includes(w.currentTask) ? "analysis" : "continuation"}`}>查看结果</Link></Button>}
-        </div>
-      </div>)}
+          {terminal(w) && <Button asChild variant="ghost" size="sm"><Link to={`/projects/${w.projectId}/${w.kind === "understand" || ["chapter-extract","book-synthesis"].includes(w.currentTask ?? "") ? "analysis" : "continuation"}`}>查看结果</Link></Button>}
+      </WorkflowProgressCard>)}
     </div>}
     {children}
   </Context.Provider>;

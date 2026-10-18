@@ -213,3 +213,15 @@ export function isIssueStatus(value: string): value is IssueStatus {
 export function isIssueSeverity(value: string): value is IssueSeverity {
   return value === "info" || value === "warning" || value === "error";
 }
+
+export type AutomaticContinuationProgress = {
+  id: string;
+  status: string;
+  planId?: string;
+  currentTask: string | null;
+  step?: number;
+  steps?: { taskType: string }[];
+  run: import("@/lib/ai/runner").RunStatusView | null;
+  taskRuns?: Record<string, import("@/lib/ai/runner").RunStatusView>;
+  plan?: ContinuationPlanView | null;
+};
