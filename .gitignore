@@ -1,21 +1,16 @@
-# Local Claude launch configuration and permissions/preferences
+# Local tool configuration
 .claude/
 
 # Private/local planning notes
 /CODING_PLAN.md
 
-# The standalone skill repository is optional for the web application
+# Optional local notes repository
 /novel-continuation/
 
-# Verification scripts and generated local artifacts
-/web/.verify/
-/.next/
+# Retired application directory may still contain local data, keys and installers
+/web/
 
-# Keep local environment and novel data private (also covered by web/.gitignore)
-/web/.env
-/web/data/
-
-# Native desktop migration build outputs and local toolchain
+# Desktop build outputs and local toolchain
 /desktop/node_modules/
 /desktop/dist/
 /desktop/public/pdfjs/

@@ -2,8 +2,7 @@
 @import "@fontsource/geist/latin-500.css";
 @import "@fontsource/geist/latin-600.css";
 @import "@fontsource/geist-mono/latin-400.css";
-@import "../../web/src/app/globals.css";
-@source "../../web/src/components";
+@import "./theme.css";
 @source "./";
 
 :root {

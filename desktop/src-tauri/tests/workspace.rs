@@ -1434,15 +1434,15 @@ fn existing_prisma_schema_is_accepted_without_rebuilding_it() {
     let dir = tempfile::tempdir().unwrap();
     let db = Connection::open(dir.path().join("app.db")).unwrap();
     for migration in [
-        include_str!("../../../web/prisma/migrations/20261014070954_init/migration.sql"),
+        include_str!("fixtures/legacy-schema/20261014070954_init.sql"),
         include_str!(
-            "../../../web/prisma/migrations/20261015045343_analysis_pipeline/migration.sql"
+            "fixtures/legacy-schema/20261015045343_analysis_pipeline.sql"
         ),
         include_str!(
-            "../../../web/prisma/migrations/20261015055759_continuity_issue_draft/migration.sql"
+            "fixtures/legacy-schema/20261015055759_continuity_issue_draft.sql"
         ),
         include_str!(
-            "../../../web/prisma/migrations/20261015060705_memory_proposal_draft/migration.sql"
+            "fixtures/legacy-schema/20261015060705_memory_proposal_draft.sql"
         ),
     ] {
         db.execute_batch(migration).unwrap();

@@ -34,8 +34,8 @@
       "nsis"
     ],
     "icon": [
-      "../../web/desktop-shell/app-icon-v2.ico",
-      "../../web/desktop-shell/app-icon-v2.png"
+      "icons/app-icon-v2.ico",
+      "icons/app-icon-v2.png"
     ],
     "windows": {
       "webviewInstallMode": {

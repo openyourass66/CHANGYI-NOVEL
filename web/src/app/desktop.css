@@ -1,9 +1,0 @@
-html[data-desktop] .app-titlebar {
-  -webkit-app-region: drag;
-  padding-right: max(160px, calc(100vw - env(titlebar-area-width, 100vw) + 12px));
-  user-select: none;
-}
-
-html[data-desktop] .app-titlebar :is(a, button, input, select, textarea, nav, [role="button"]) {
-  -webkit-app-region: no-drag;
-}

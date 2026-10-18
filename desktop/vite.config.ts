@@ -11,10 +11,7 @@ export default defineConfig({
   publicDir: "public",
   resolve: {
     alias: {
-      "@": path.resolve(root, "../web/src"),
-      "next/link": path.resolve(root, "src/compat/link.tsx"),
-      "next/image": path.resolve(root, "src/compat/image.tsx"),
-      "next/navigation": path.resolve(root, "src/compat/navigation.tsx"),
+      "@": path.resolve(root, "src"),
     },
     dedupe: ["react", "react-dom", "radix-ui", "next-themes"],
   },
