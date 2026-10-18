@@ -588,8 +588,15 @@ test("memory entries scroll inside a pane aligned with the category card", async
     expect(Math.abs(left!.y - right!.y)).toBeLessThan(1);
     expect(Math.abs(left!.y + left!.height - right!.y - right!.height)).toBeLessThan(1);
   }
+  async function fillsWindow() {
+    await expect.poll(async () => {
+      const box = await pane.boundingBox();
+      return Math.round(page.viewportSize()!.height - box!.y - box!.height);
+    }).toBe(24);
+  }
   await expect(list.locator("li")).toHaveCount(48);
   await aligned();
+  await fillsWindow();
   const top = await search.evaluate((el) => el.getBoundingClientRect().top);
   const pageY = await page.evaluate(() => window.scrollY);
   await list.hover(); await page.mouse.wheel(0, 600);
@@ -619,6 +626,16 @@ test("memory entries scroll inside a pane aligned with the category card", async
   await aligned();
   await page.setViewportSize({ width: 860, height: 900 });
   await aligned();
+  await fillsWindow();
+  await page.setViewportSize({ width: 860, height: 600 });
+  await fillsWindow();
+  await aligned();
+  expect(await list.evaluate((el) => el.clientHeight)).toBeGreaterThan(120);
+  await category.getByRole("button").last().focus();
+  expect(await category.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await page.setViewportSize({ width: 860, height: 900 });
+  await fillsWindow();
   await page.getByRole("button", { name: "切换主题", exact: true }).click();
   await page.getByRole("menuitem", { name: "深色", exact: true }).click();
   await expect(page.getByRole("menu")).toHaveCount(0);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { notify } from "@/components/operation-prompt";
 import { Download, Loader2, MapPin, Plus, Search, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -76,6 +76,25 @@ export function MemoryWorkbench({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const entriesScrollRef = useRef<HTMLDivElement | null>(null);
+  const entriesPanelRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (tab !== "entries") return;
+    const panel = entriesPanelRef.current;
+    const root = rootRef.current;
+    if (!panel || !root) return;
+    const fitToWindow = () => {
+      const top = panel.getBoundingClientRect().top + window.scrollY;
+      const height = window.innerWidth >= 768 ? `${Math.max(200, Math.floor(window.innerHeight - top - 24))}px` : "";
+      if (panel.style.height !== height) panel.style.height = height;
+    };
+    fitToWindow();
+    const observer = new ResizeObserver(fitToWindow);
+    observer.observe(root);
+    if (root.parentElement) observer.observe(root.parentElement);
+    window.addEventListener("resize", fitToWindow);
+    return () => { observer.disconnect(); window.removeEventListener("resize", fitToWindow); };
+  }, [tab]);
 
   useEffect(() => {
     entriesScrollRef.current?.scrollTo({ top: 0, behavior: "instant" });
@@ -203,9 +222,9 @@ export function MemoryWorkbench({
             </Button>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-            <aside aria-label="记忆分类">
-              <div className="rounded-lg border bg-card p-1.5">
+          <div ref={entriesPanelRef} className="grid min-h-0 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+            <aside aria-label="记忆分类" className="min-h-0">
+              <div className="rounded-lg border bg-card p-1.5 md:h-full md:overflow-y-auto md:overscroll-contain">
                 <CategoryButton
                   active={category === ALL}
                   label="全部"
@@ -230,7 +249,7 @@ export function MemoryWorkbench({
                   <span>共 {currentCount} 条</span>
                   {loading ? <span className="flex items-center gap-1.5"><Loader2 className="size-3 animate-spin" aria-hidden />加载中…</span> : <span>条目列表</span>}
                 </div>
-                <div ref={entriesScrollRef} role="region" aria-label="记忆条目列表" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 [overflow-anchor:none] [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring">
+                <div ref={entriesScrollRef} role="region" aria-label="记忆条目列表" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 [overflow-anchor:none] [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring">
               {entries.length === 0 && (
                 <div className="rounded-lg border border-dashed p-10 text-center">
                   <p className="text-sm text-muted-foreground">
@@ -244,14 +263,14 @@ export function MemoryWorkbench({
               )}
               {entries.length > 0 && (
                 <>
-                  <ul role="list" className="space-y-2">
+                  <ul role="list" className="space-y-3">
                     {entries.map((e) => (
                       <li key={e.id} data-entry-id={e.id}>
                         <button
                           type="button"
                           onClick={() => openEdit(e)}
                           className={cn(
-                            "w-full rounded-lg border bg-card p-4 text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                            "w-full rounded-lg border bg-card p-5 text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                             flashEntryId === e.id && "ring-2 ring-warning",
                           )}
                         >
@@ -276,7 +295,7 @@ export function MemoryWorkbench({
                                   </span>
                                 )}
                               </div>
-                              <p className="line-clamp-2 text-sm text-muted-foreground">
+                              <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
                                 {e.content}
                               </p>
                               {e.citations.length > 0 && (
