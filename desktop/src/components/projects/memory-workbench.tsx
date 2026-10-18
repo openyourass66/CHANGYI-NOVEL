@@ -75,12 +75,18 @@ export function MemoryWorkbench({
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const entriesScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    entriesScrollRef.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [category, query]);
 
   // 由连续性检查的问题「相关记忆」跳转进来时，把目标条目滚到视野中央并高亮一下。
   useEffect(() => {
     if (!focusEntryId) return;
     const el = rootRef.current?.querySelector<HTMLElement>(`[data-entry-id="${focusEntryId}"]`);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const region = entriesScrollRef.current;
+    if (el && region) region.scrollTop += el.getBoundingClientRect().top - region.getBoundingClientRect().top - (region.clientHeight - el.clientHeight) / 2;
     const timer = window.setTimeout(() => setFlashEntryId(null), 2000);
     return () => window.clearTimeout(timer);
   }, [focusEntryId]);
@@ -197,7 +203,7 @@ export function MemoryWorkbench({
             </Button>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+          <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
             <aside aria-label="记忆分类">
               <div className="rounded-lg border bg-card p-1.5">
                 <CategoryButton
@@ -218,14 +224,14 @@ export function MemoryWorkbench({
               </div>
             </aside>
 
-            <section aria-live="polite" className="space-y-3">
-              {loading && (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                  加载中…
-                </p>
-              )}
-              {!loading && entries.length === 0 && (
+            <section aria-label="记忆条目区域" aria-busy={loading} className="relative h-[420px] min-h-0 min-w-0 overflow-hidden rounded-lg border bg-card md:h-auto">
+              <div className="absolute inset-0 flex min-h-0 flex-col">
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b px-3 py-2.5 text-xs text-muted-foreground" role="status">
+                  <span>共 {currentCount} 条</span>
+                  {loading ? <span className="flex items-center gap-1.5"><Loader2 className="size-3 animate-spin" aria-hidden />加载中…</span> : <span>条目列表</span>}
+                </div>
+                <div ref={entriesScrollRef} role="region" aria-label="记忆条目列表" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 [overflow-anchor:none] [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring">
+              {entries.length === 0 && (
                 <div className="rounded-lg border border-dashed p-10 text-center">
                   <p className="text-sm text-muted-foreground">
                     {query.trim() ? "没有匹配的记忆条目。" : "该分类下暂无记忆条目。"}
@@ -236,9 +242,8 @@ export function MemoryWorkbench({
                   </Button>
                 </div>
               )}
-              {!loading && entries.length > 0 && (
+              {entries.length > 0 && (
                 <>
-                  <p className="text-xs text-muted-foreground">共 {currentCount} 条</p>
                   <ul role="list" className="space-y-2">
                     {entries.map((e) => (
                       <li key={e.id} data-entry-id={e.id}>
@@ -297,6 +302,8 @@ export function MemoryWorkbench({
                   </ul>
                 </>
               )}
+                </div>
+              </div>
             </section>
           </div>
         </TabsContent>

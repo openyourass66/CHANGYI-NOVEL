@@ -563,3 +563,70 @@ test("automatic continuation survives navigation, reminds once, and opens a read
     await expect(page.getByText("主角已与同伴重逢。", { exact: true })).toBeVisible();
   } finally { server.close(); }
 });
+
+test("memory entries scroll inside a pane aligned with the category card", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await createProject(page, "记忆滚动验收");
+  const projectId = await page.evaluate(() => location.hash.match(/projects\/([^/?]+)/)![1]);
+  const targetId = await page.evaluate(async (id) => {
+    let target = "";
+    for (let i = 0; i < 48; i++) {
+      const response = await fetch(`/api/projects/${id}/memory`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category: i % 2 ? "character" : "story-bible", key: `scroll-${i}`, title: `条目 ${i}`, content: "记忆条目保留原来的卡片样式，在分类栏右侧的固定区域内滚动。".repeat(3), status: "confirmed", citations: [] }) });
+      if (!response.ok) throw new Error(await response.text());
+      const data = await response.json(); if (i === 0) target = data.entry.id;
+    }
+    return target;
+  }, projectId);
+  await page.getByRole("link", { name: "记忆工作台", exact: true }).click();
+  const category = page.getByLabel("记忆分类", { exact: true }).locator("div").first();
+  const pane = page.getByRole("region", { name: "记忆条目区域", exact: true });
+  const list = page.getByRole("region", { name: "记忆条目列表", exact: true });
+  const search = page.getByLabel("搜索记忆条目", { exact: true });
+  async function aligned() {
+    const left = await category.boundingBox(); const right = await pane.boundingBox();
+    expect(left).not.toBeNull(); expect(right).not.toBeNull();
+    expect(Math.abs(left!.y - right!.y)).toBeLessThan(1);
+    expect(Math.abs(left!.y + left!.height - right!.y - right!.height)).toBeLessThan(1);
+  }
+  await expect(list.locator("li")).toHaveCount(48);
+  await aligned();
+  const top = await search.evaluate((el) => el.getBoundingClientRect().top);
+  const pageY = await page.evaluate(() => window.scrollY);
+  await list.hover(); await page.mouse.wheel(0, 600);
+  await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(300);
+  expect(await search.evaluate((el) => el.getBoundingClientRect().top)).toBe(top);
+  await expect(page.getByRole("button", { name: "新建条目", exact: true })).toBeInViewport();
+  await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await page.mouse.wheel(0, 600);
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageY);
+  await list.locator("button").nth(12).scrollIntoViewIfNeeded();
+  const position = await list.evaluate((el) => el.scrollTop);
+  await list.locator("button").nth(12).click();
+  await page.locator("#mem-content").fill("已编辑的记忆，列表滚动位置保持不变。");
+  await page.getByRole("button", { name: "保存新版本", exact: true }).click();
+  await page.getByRole("button", { name: "知道了", exact: true }).click();
+  await expect(list.locator("li")).toHaveCount(48);
+  expect(await list.evaluate((el) => el.scrollTop)).toBe(position);
+  await page.screenshot({ path: ".verify/memory-aligned-actual.png" });
+  await search.fill("找不到的条目");
+  await expect(list).toContainText("没有匹配的记忆条目");
+  await aligned();
+  await search.fill("");
+  await expect(list.locator("li")).toHaveCount(48);
+  await page.getByRole("button", { name: "人物 24", exact: true }).click();
+  await expect(list.locator("li")).toHaveCount(24);
+  expect(await list.evaluate((el) => el.scrollTop)).toBe(0);
+  await aligned();
+  await page.setViewportSize({ width: 860, height: 900 });
+  await aligned();
+  await page.getByRole("button", { name: "切换主题", exact: true }).click();
+  await page.getByRole("menuitem", { name: "深色", exact: true }).click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.screenshot({ path: ".verify/memory-aligned-narrow-dark.png" });
+  await page.goto("/#/works");
+  await expect(page.getByRole("heading", { name: "作品库", exact: true })).toBeVisible();
+  await page.goto(`/#/projects/${projectId}/memory?entry=${targetId}`);
+  await expect(list.locator(`[data-entry-id="${targetId}"]`)).toBeInViewport();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await aligned();
+});
