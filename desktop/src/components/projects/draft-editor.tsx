@@ -97,8 +97,8 @@ export function DraftEditor({
   }
 
   function exportText() {
-    const body = `第 ${draft.index} 章　${title || "（无标题）"}\n\n${content}\n`;
-    const fileName = `第${draft.index}章-${(title || "草稿").replace(/[\\/:*?"<>|]/g, "_")}.txt`;
+    const body = `第 ${draft.chapterNumber ?? draft.index} 章　${title || "（无标题）"}\n\n${content}\n`;
+    const fileName = `第${draft.chapterNumber ?? draft.index}章-${(title || "草稿").replace(/[\\/:*?"<>|]/g, "_")}.txt`;
     if (onExportText) {
       void onExportText(fileName, body).catch((error: unknown) => notify.error(error instanceof Error ? error.message : String(error)));
       return;
@@ -119,7 +119,7 @@ export function DraftEditor({
       <DialogContent className="flex max-h-[88vh] flex-col sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2">
-            <span>第 {draft.index} 章</span>
+            <span>第 {draft.chapterNumber ?? draft.index} 章</span>
             <Badge variant="secondary" className="text-xs">
               v{draft.version}
             </Badge>

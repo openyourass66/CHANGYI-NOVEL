@@ -14,6 +14,7 @@ export type EvidenceRef = {
 
 export type OutlineItem = {
   index: number;
+  chapterNumber?: number;
   title: string;
   summary: string;
   beats: string[];
@@ -32,6 +33,7 @@ export type ContinuationPlanView = {
   status: PlanStatus;
   version: number;
   draftCount: number;
+  firstChapterNumber?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -43,6 +45,7 @@ export type DraftChapterView = {
   projectId: string;
   planId: string | null;
   index: number;
+  chapterNumber?: number;
   title: string | null;
   content: string;
   outlineItem: OutlineItem | null;

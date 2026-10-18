@@ -292,6 +292,7 @@ pub fn draft_history(
 ) -> Result<DraftContext> {
     let drafts = query(db, "SELECT id,\"index\",title,content,version FROM DraftChapter WHERE projectId=? AND planId=? AND \"index\"!=? AND (? OR \"index\"<?) ORDER BY \"index\"",
         &[json!(project),json!(plan),json!(index),json!(check),json!(index)])?;
+    let first_number = crate::chapter_titles::plan_first(db, plan)?;
     let shared_budget = if !check && drafts.len() > 1 {
         12000 / (drafts.len() - 1)
     } else {
@@ -310,8 +311,8 @@ pub fn draft_history(
             format!(
                 "[D{}] 第 {} 章《{}》\n{}",
                 i + 1,
-                row["index"],
-                row["title"].as_str().unwrap_or(""),
+                first_number + row["index"].as_i64().unwrap_or(1) - 1,
+                crate::chapter_titles::display_title(&row["title"]),
                 history_excerpt(
                     row["content"].as_str().unwrap_or(""),
                     focus,

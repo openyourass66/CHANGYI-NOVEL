@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod api;
 pub mod automation;
+mod chapter_titles;
 pub mod context;
 pub mod continuation;
 pub mod database;

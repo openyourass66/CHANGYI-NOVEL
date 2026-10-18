@@ -713,20 +713,20 @@ export function ContinuationPanel({
                   <div key={i} className="space-y-2 rounded-md border bg-card p-3">
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-muted-foreground">
-                        第 {i + 1} 章
+                        第 {(plan.firstChapterNumber ?? 1) + i} 章
                       </span>
                       <Input
                         value={item.title}
                         onChange={(e) => updateItem(i, { title: e.target.value })}
                         placeholder="章标题"
-                        aria-label={`第 ${i + 1} 章标题`}
+                        aria-label={`第 ${(plan.firstChapterNumber ?? 1) + i} 章标题`}
                         className="flex-1"
                       />
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => removeItem(i)}
-                        aria-label={`删除第 ${i + 1} 章`}
+                        aria-label={`删除第 ${(plan.firstChapterNumber ?? 1) + i} 章`}
                       >
                         <X className="size-4" />
                       </Button>
@@ -735,7 +735,7 @@ export function ContinuationPanel({
                       value={item.summary}
                       onChange={(e) => updateItem(i, { summary: e.target.value })}
                       placeholder="本章走向"
-                      aria-label={`第 ${i + 1} 章走向`}
+                      aria-label={`第 ${(plan.firstChapterNumber ?? 1) + i} 章走向`}
                       rows={2}
                     />
                     <Textarea
@@ -749,7 +749,7 @@ export function ContinuationPanel({
                         })
                       }
                       placeholder="关键节拍，一行一条"
-                      aria-label={`第 ${i + 1} 章节拍`}
+                      aria-label={`第 ${(plan.firstChapterNumber ?? 1) + i} 章节拍`}
                       rows={3}
                     />
                   </div>
@@ -793,7 +793,7 @@ export function ContinuationPanel({
                 {plan.outline.map((item) => (
                   <li key={item.index} className="rounded-md border bg-card p-3">
                     <p className="text-sm font-medium">
-                      第 {item.index} 章 · {item.title}
+                      第 {item.chapterNumber ?? item.index} 章 · {item.title}
                     </p>
                     {item.summary && (
                       <p className="mt-1 text-sm whitespace-pre-wrap text-muted-foreground">
@@ -880,7 +880,7 @@ export function ContinuationPanel({
                       <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">
-                            第 {d.index} 章 · {d.title || "（无标题）"}
+                            第 {d.chapterNumber ?? d.index} 章 · {d.title || "（无标题）"}
                           </span>
                           <Badge variant="secondary" className="text-xs">
                             v{d.version}

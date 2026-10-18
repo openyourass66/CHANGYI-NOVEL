@@ -647,3 +647,60 @@ test("memory entries scroll inside a pane aligned with the category card", async
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
   await aligned();
 });
+
+
+test("continued chapter names use source numbers once in reader, exports and original", async ({ page }) => {
+  const prose = "主角走出门外，沿着石阶下山。他记得同伴的叮嘱，先在山口寻找银纹留下的痕迹，再去旧城打听消息。";
+  const outputs = [
+    { chapters: [{ title: "第六章门外", summary: "走出门外寻找线索", beats: [], relatedThreads: [] }], notes: "", conflicts: [] },
+    { title: "第6章 第六章门外", content: Array(45).fill(prose).join("\n\n") },
+    { issues: [] }, { items: [] },
+  ];
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(outputs[requests++]) } }], usage: { prompt_tokens: 100, completion_tokens: 50 } }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === "string") throw new Error("mock missing");
+    await createProject(page, "章名去重验收");
+    const setup = await page.evaluate(async (baseUrl) => {
+      const project = location.hash.match(/projects\/([^/?]+)/)![1];
+      async function post(path: string, body: unknown) {
+        const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        if (!response.ok) throw new Error(await response.text()); return response.json();
+      }
+      const content = "原作第五章银纹的正文。";
+      const bytes = btoa(String.fromCharCode(...new TextEncoder().encode(content)));
+      await post(`/api/projects/${project}/import`, { fileName: "原作.txt", format: "txt", encoding: "UTF-8", bytes, warnings: [], chapters: [{ volumeNumber: null, volumeTitle: null, rawTitle: "第五章 银纹", normalizedIndex: 5, content, startOffset: 0, endOffset: content.length, confidence: 1, flags: [] }] });
+      await post(`/api/projects/${project}/memory`, { category: "chapter-note", content: "主角即将出门", status: "inferred", citations: [] });
+      const { plan } = await post(`/api/projects/${project}/plans`, { direction: "走出门外", summary: "接续原作" });
+      const { profile } = await post("/api/model-profiles", { name: "章名验收模型", provider: "ollama", model: "mock", baseUrl, isLocal: true });
+      const workflow = await post(`/api/projects/${project}/workflows`, { kind: "continue", profileId: profile.id, planId: plan.id, outlineMode: "auto" });
+      return { project, workflow: workflow.workflowId };
+    }, `http://127.0.0.1:${address.port}/v1`);
+    await expect.poll(() => page.evaluate(async () => (await (await fetch("/api/works")).json()).works.length)).toBe(1);
+    await page.getByRole("link", { name: "作品库", exact: true }).click();
+    await page.getByRole("link", { name: "开始阅读", exact: true }).click();
+    const directory = page.getByRole("navigation", { name: "续写章节目录" });
+    await expect(directory.getByRole("button", { name: "第 6 章 · 门外", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "门外", exact: true })).toBeVisible();
+    await expect(directory).not.toContainText("第六章");
+    await page.getByRole("button", { name: "导出全文", exact: true }).click();
+    const exports = await page.evaluate(async () => (window as unknown as { readNativeExports: () => Promise<{ text: string }[]> }).readNativeExports());
+    expect(exports.at(-1)?.text).toContain("第6章 门外");
+    expect(exports.at(-1)?.text).not.toContain("第六章");
+    await page.getByRole("button", { name: "一键并入原作", exact: true }).click();
+    await page.getByRole("button", { name: "确认并入", exact: true }).click();
+    await page.getByRole("button", { name: "知道了", exact: true }).click();
+    await page.reload();
+    await expect(directory.getByRole("button", { name: "第 6 章 · 门外", exact: true })).toBeVisible();
+    await page.screenshot({ path: ".verify/chapter-titles-reader.png", fullPage: true });
+    await page.goto(`/#/projects/${setup.project}`);
+    await expect(page.getByRole("button", { name: /第6章 门外/ })).toBeVisible();
+    await page.getByRole("button", { name: /第6章 门外/ }).click();
+    await expect(page.getByRole("heading", { name: "第6章 门外", exact: true })).toBeVisible();
+    expect(requests).toBe(4);
+  } finally { server.close(); }
+});

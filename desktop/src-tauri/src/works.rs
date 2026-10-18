@@ -38,6 +38,7 @@ pub fn archive(db: &Connection, workflow: &Value, generated_at: i64) -> Result<S
         plan["direction"].as_str().unwrap_or("续写")
     );
     execute(db,"INSERT INTO NativeWork(id,workflowId,title,sourceProjectId,sourceProjectName,direction,generatedAt) VALUES(?,?,?,?,?,?,?)", &[json!(work_id),json!(workflow_id),json!(title),workflow["projectId"].clone(),project["name"].clone(),plan["direction"].clone(),json!(generated_at)])?;
+    crate::chapter_titles::save_work(db, &work_id, crate::chapter_titles::plan_first(db, config["planId"].as_str().unwrap_or(""))?)?;
     for chapter in chapters {
         execute(
             db,
@@ -46,7 +47,7 @@ pub fn archive(db: &Connection, workflow: &Value, generated_at: i64) -> Result<S
                 json!(id()),
                 json!(work_id),
                 chapter["index"].clone(),
-                chapter["title"].clone(),
+                json!(crate::chapter_titles::display_title(&chapter["title"])),
                 chapter["content"].clone(),
             ],
         )?;
@@ -106,7 +107,9 @@ fn list(db: &Connection) -> Result<Value> {
 }
 fn detail(db: &Connection, id: &str) -> Result<Value> {
     let mut work=one(db,"SELECT w.id,w.title,w.sourceProjectId,w.sourceProjectName,w.direction,w.generatedAt,m.mergedAt,(SELECT COUNT(*) FROM NativeWorkMemory n WHERE n.workId=w.id) AS memoryCount FROM NativeWork w LEFT JOIN NativeWorkMerge m ON m.workId=w.id WHERE w.id=? AND w.deletedAt IS NULL", &[json!(id)])?;
-    let chapters = query(db,"SELECT id,\"index\",title,content,1 AS version FROM NativeWorkChapter WHERE workId=? ORDER BY \"index\"", &[json!(id)])?;
+    let first = crate::chapter_titles::work_first(db, id)?;
+    let mut chapters = query(db,"SELECT id,\"index\",title,content,1 AS version FROM NativeWorkChapter WHERE workId=? ORDER BY \"index\"", &[json!(id)])?;
+    for chapter in &mut chapters { chapter["chapterNumber"] = json!(first + chapter["index"].as_i64().unwrap_or(1) - 1); chapter["title"] = json!(crate::chapter_titles::display_title(&chapter["title"])); }
     work["chapterCount"] = json!(chapters.len());
     work["charCount"] = json!(chapters.iter().map(|chapter| chapter["content"].as_str().unwrap_or("").chars().count()).sum::<usize>());
     work["chapters"] = json!(chapters);

@@ -52,7 +52,7 @@ export function ContinuationResults({ projectId, planId, drafts, kind, reloadKey
   const scopedProposals = proposals.filter((proposal) => proposal.draftId && draftIds.has(proposal.draftId));
   const draftLabel = (id: string | null) => {
     const draft = drafts.find((draft) => draft.id === id);
-    return draft ? `第 ${draft.index} 章 · ${draft.title || "（无标题）"}` : "来源草稿";
+    return draft ? `第 ${draft.chapterNumber ?? draft.index} 章 · ${draft.title || "（无标题）"}` : "来源草稿";
   };
 
   async function updateIssue(id: string, status: IssueStatus) {

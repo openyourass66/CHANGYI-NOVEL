@@ -51,7 +51,7 @@ pub(crate) fn merge(db: &mut Connection, root: &Path, work_id: &str) -> Result<V
     for chapter in &original {
         let part = format!(
             "{}\n{}\n\n",
-            chapter["rawTitle"].as_str().unwrap_or(""),
+            crate::chapter_titles::original_title(chapter),
             chapter["content"].as_str().unwrap_or("")
         );
         offset += part.encode_utf16().count() as i64;
@@ -67,12 +67,13 @@ pub(crate) fn merge(db: &mut Connection, root: &Path, work_id: &str) -> Result<V
         .filter_map(|chapter| chapter["sortOrder"].as_i64())
         .max()
         .unwrap_or(0);
+    crate::chapter_titles::save_work(&tx, work_id, first_number + 1)?;
     let mut appended = Vec::new();
     for (index, chapter) in chapters.iter().enumerate() {
         let number = first_number + index as i64 + 1;
         let title = format!(
             "第{number}章 {}",
-            chapter["title"].as_str().unwrap_or("续写")
+            crate::chapter_titles::display_title(&chapter["title"])
         );
         let heading = format!("{title}\n");
         text.push_str(&heading);

@@ -270,11 +270,11 @@ fn task_units(db: &Connection, project_id: &str, body: &Value, task: &str) -> Re
             } else {
                 "memo"
             };
-            return Ok(drafts.into_iter().map(|row|json!({
+            return drafts.into_iter().map(|row| { let number = crate::chapter_titles::draft_number(db, &row)?; Ok(json!({
                 "id":format!("{prefix}-{}",row["id"].as_str().unwrap_or("")),
-                "rawTitle":format!("第 {} 章 · {}",row["index"],row["title"].as_str().unwrap_or("（无标题）")),
+                "rawTitle":format!("第 {} 章 · {}",number,crate::chapter_titles::display_title(&row["title"])),
                 "content":row["content"],"index":row["index"],"planId":row["planId"],"outlineItemJson":row["outlineItemJson"]
-            })).collect());
+            })) }).collect::<Result<Vec<_>>>();
         }
         if task == "draft" {
             let plan_id = resolve_plan_id(db, project_id, &body["payload"])?;
@@ -298,11 +298,14 @@ fn task_units(db: &Connection, project_id: &str, body: &Value, task: &str) -> Re
             .into_iter()
             .filter_map(|row| row["index"].as_u64())
             .collect::<HashSet<_>>();
+            let first_number = crate::chapter_titles::plan_first(db, &plan_id)?;
+            crate::chapter_titles::save_plan(db, &plan_id, first_number)?;
             let units=items.iter().enumerate().filter_map(|(i,item)|{
                 let index=item["index"].as_u64().unwrap_or((i+1) as u64);
                 if selected.is_some_and(|value|value!=index) || (selected.is_none() && existing.contains(&index)){return None;}
-                let title=item["title"].as_str().unwrap_or("");
-                Some(json!({"id":format!("draft-{index}"),"rawTitle":format!("第 {index} 章 · {title}"),
+                let title=crate::chapter_titles::display_title(&item["title"]);
+                let number=first_number + index as i64 - 1;
+                Some(json!({"id":format!("draft-{index}"),"rawTitle":format!("第 {number} 章 · {title}"),
                     "content":item["summary"],"index":index}))
             }).collect::<Vec<_>>();
             if units.is_empty() {
@@ -1314,6 +1317,8 @@ fn run_outline(
     {
         return Err("这个方向已有草稿，不能直接重生成章纲。".into());
     }
+    let first_number = crate::chapter_titles::plan_first(db, &plan_id)?;
+    crate::chapter_titles::save_plan(db, &plan_id, first_number)?;
     let automatic = payload["outlineMode"] == "auto";
     if !automatic
         && payload
@@ -1333,7 +1338,7 @@ fn run_outline(
     let ctx = context::build_for(db, project_id, 2, &focus)?;
     let direction = plan["direction"].as_str().unwrap_or("");
     let summary = plan["summary"].as_str().unwrap_or("");
-    let system="你是一名小说结构师，负责为已选定方向排出接下来若干章的章纲。严格服务于方向，每章推进核心冲突；不得推翻既有事实。只排章纲，不写正文。若作者要求与既有事实存在明确冲突，返回 conflicts 并令 chapters 为空。";
+    let system="你是一名小说结构师，负责为已选定方向排出接下来若干章的章纲。严格服务于方向，每章推进核心冲突；不得推翻既有事实。只排章纲，不写正文。title 只填写纯章名，不要包含“第几章”、序号或 Markdown 标记。若作者要求与既有事实存在明确冲突，返回 conflicts 并令 chapters 为空。";
     let length_instruction = if automatic {
         "请根据方向、故事记忆和本段剧情目标智能安排章数，通常 3–8 章，最多 30 章；以自然完成本段剧情为准，不凑章数，并在 notes 中说明篇幅安排理由".to_string()
     } else {
@@ -1446,10 +1451,10 @@ fn run_draft(
         "【本方向此前正文（按章序节选，未发生的章纲不是事实）】\n{}",
         history.text
     );
-    let system="你是一名小说续写者，负责按既定章纲写出这一章的正文。严格承接已确认的故事事实，与前情保持连贯；只写本章，不提前写后章，不写总结或作者按；遵循方向说明中的目标、节奏和禁用情节。";
+    let system="你是一名小说续写者，负责按既定章纲写出这一章的正文。严格承接已确认的故事事实，与前情保持连贯；只写本章，不提前写后章，不写总结或作者按；title 只填写纯章名，不含章号；content 不要重复章节标题或章号；遵循方向说明中的目标、节奏和禁用情节。";
     let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n【本章章纲（第 {} 章）】\n标题：{}\n走向：{}\n关键节拍：\n{}\n承接线索：{}\n{}\n请写出本章正文，只返回 JSON：{{\"title\":string,\"content\":string}}。content 为 1800–3500 字（不含空白）的自然段正文，不含元信息或 Markdown 标记。",
         ctx.text,plan["direction"].as_str().unwrap_or(""),plan["summary"].as_str().unwrap_or(""),
-        index,item["title"].as_str().unwrap_or(""),item["summary"].as_str().unwrap_or(""),beats,related,previous_text);
+        crate::chapter_titles::plan_first(db, &plan_id)? + index - 1,crate::chapter_titles::display_title(&item["title"]),item["summary"].as_str().unwrap_or(""),beats,related,previous_text);
     let (output, usage) =
         model::request_tracked(db, run_id, profile, system, &prompt, 8000, "draft")?;
     if one(
@@ -1466,6 +1471,7 @@ fn run_draft(
         .map(str::trim)
         .filter(|s| !s.is_empty() && s.encode_utf16().count() <= 120)
         .ok_or("模型草稿标题无效。")?;
+    let title = crate::chapter_titles::display_title(&json!(title));
     let content = output["content"]
         .as_str()
         .map(str::trim)

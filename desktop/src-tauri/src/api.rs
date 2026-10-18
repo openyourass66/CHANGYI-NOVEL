@@ -242,6 +242,7 @@ fn touch(db: &Connection, id: &str) -> Result<()> {
 }
 
 fn view_chapter(row: &mut Value, content: bool) {
+    row["rawTitle"] = json!(crate::chapter_titles::original_title(row));
     row["charCount"] = json!(row["content"].as_str().unwrap_or("").encode_utf16().count());
     row["flags"] =
         serde_json::from_str(row["flagsJson"].as_str().unwrap_or("[]")).unwrap_or(json!([]));
@@ -492,7 +493,7 @@ fn export_project(db: &Connection, project_id: &str, path: &str) -> Result<Value
             parts.push(
                 format!(
                     "{}\n\n{}",
-                    row["rawTitle"].as_str().unwrap_or(""),
+                    crate::chapter_titles::original_title(&row),
                     row["content"].as_str().unwrap_or("")
                 )
                 .trim_end()
@@ -520,6 +521,7 @@ fn export_project(db: &Connection, project_id: &str, path: &str) -> Result<Value
             &[json!(project_id)],
         )?;
         for r in &mut records {
+            if table == "ContinuationPlan" { r["firstChapterNumber"] = json!(crate::chapter_titles::plan_first(db, r["id"].as_str().unwrap_or(""))?); }
             for (from, to) in [
                 ("flagsJson", "flags"),
                 ("sourceCitationsJson", "citations"),

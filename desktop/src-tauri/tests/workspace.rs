@@ -2414,3 +2414,73 @@ fn token_tracking_counts_invalid_output_retry_and_http_failure() {
     assert_eq!(result["global"]["total"],46);
     assert_eq!(result["global"]["requests"],3);
 }
+
+
+#[test]
+fn generated_chapter_titles_continue_source_numbers_and_survive_merge() {
+    let (address, server) = automation_mock(vec![
+        json!({"chapters":[{"title":"第六章 门外","summary":"主角走出门外","beats":[],"relatedThreads":[]}],"notes":"","conflicts":[]}),
+        automation_draft("第6章 第六章门外"), json!({"issues":[]}), json!({"items":[]})
+    ]);
+    let mut f = Fixture::new();
+    let p = f.create();
+    f.import(&p, "原作最后一章的正文。");
+    database::execute(&f.db, "UPDATE Chapter SET normalizedIndex=5,rawTitle='第五章 银纹' WHERE projectId=?", &[json!(p)]).unwrap();
+    f.request("POST", &format!("/api/projects/{p}/memory"), json!({"category":"chapter-note","content":"主角正要出门。","status":"inferred","citations":[]})).unwrap();
+    let plan = f.request("POST", &format!("/api/projects/{p}/plans"), json!({"direction":"走出门外","summary":"接续原作"})).unwrap()["plan"]["id"].as_str().unwrap().to_string();
+    let profile = automation_profile(&mut f, &address);
+    let started = f.request("POST", &format!("/api/projects/{p}/workflows"), json!({"kind":"continue","profileId":profile,"planId":plan,"outlineMode":"auto"})).unwrap();
+    let finished = wait_workflow(&mut f, started["workflowId"].as_str().unwrap(), "done");
+    assert_eq!(finished["plan"]["outline"][0]["title"], "门外");
+    assert_eq!(finished["plan"]["outline"][0]["index"], 1);
+    assert_eq!(finished["plan"]["outline"][0]["chapterNumber"], 6);
+    let drafts = f.request("GET", &format!("/api/projects/{p}/plans/{plan}/drafts"), Value::Null).unwrap();
+    assert_eq!(drafts["drafts"][0]["title"], "门外");
+    assert_eq!(drafts["drafts"][0]["chapterNumber"], 6);
+    assert_eq!(database::one(&f.db, "SELECT title FROM DraftChapter WHERE planId=?", &[json!(plan)]).unwrap()["title"], "门外");
+    let work = f.request("GET", "/api/works", Value::Null).unwrap()["works"][0]["id"].as_str().unwrap().to_string();
+    let before = f.request("GET", &format!("/api/works/{work}"), Value::Null).unwrap();
+    assert_eq!(before["work"]["chapters"][0]["chapterNumber"], 6);
+    f.request("POST", &format!("/api/works/{work}/merge"), json!({"confirmed":true})).unwrap();
+    let chapters = f.chapters(&p);
+    assert_eq!(chapters.last().unwrap()["rawTitle"], "第6章 门外");
+    assert_eq!(chapters.last().unwrap()["normalizedIndex"], 6);
+    let after = f.request("GET", &format!("/api/works/{work}"), Value::Null).unwrap();
+    assert_eq!(after["work"]["chapters"], before["work"]["chapters"]);
+    let plan_after = f.request("GET", &format!("/api/projects/{p}/plans/{plan}"), Value::Null).unwrap();
+    assert_eq!(plan_after["plan"]["firstChapterNumber"], 6);
+    let backup = f.request("GET", &format!("/api/projects/{p}/export"), Value::Null).unwrap();
+    let backup: Value = serde_json::from_str(backup["text"].as_str().unwrap()).unwrap();
+    assert_eq!(backup["continuationPlans"][0]["firstChapterNumber"], 6);
+    let restored = f.request("POST", "/api/projects/restore", backup).unwrap();
+    let restored_id = restored["project"]["id"].as_str().unwrap();
+    let restored_plans = f.request("GET", &format!("/api/projects/{restored_id}/plans"), Value::Null).unwrap();
+    assert_eq!(restored_plans["plans"][0]["firstChapterNumber"], 6);
+    f.request("DELETE", &format!("/api/projects/{p}"), Value::Null).unwrap();
+    let reopened = database::open(f.dir.path()).unwrap();
+    assert_eq!(database::one(&reopened, "SELECT firstNumber FROM NativeWorkNumbering WHERE workId=?", &[json!(work)]).unwrap()["firstNumber"], 6);
+    assert_eq!(f.request("GET", &format!("/api/works/{work}"), Value::Null).unwrap()["work"]["chapters"][0]["chapterNumber"], 6);
+    let requests = server.join().unwrap();
+    assert!(requests[1].contains("第 6 章"));
+}
+
+#[test]
+fn legacy_titles_are_cleaned_without_rewriting_source_or_losing_numbering() {
+    let (mut f, project, work, _) = merge_fixture();
+    database::execute(&f.db, "UPDATE Chapter SET normalizedIndex=5,rawTitle='第五章 银纹' WHERE projectId=?", &[json!(project)]).unwrap();
+    database::execute(&f.db, "UPDATE NativeWorkChapter SET title='第六章门外' WHERE workId=?", &[json!(work)]).unwrap();
+    let first = f.request("GET", &format!("/api/works/{work}"), Value::Null).unwrap();
+    assert_eq!(first["work"]["chapters"][0]["title"], "门外");
+    assert_eq!(first["work"]["chapters"][0]["chapterNumber"], 6);
+    f.request("POST", &format!("/api/works/{work}/merge"), json!({"confirmed":true})).unwrap();
+    database::execute(&f.db, "UPDATE Chapter SET rawTitle='第6章 第六章门外' WHERE projectId=? AND normalizedIndex=6", &[json!(project)]).unwrap();
+    let chapter = f.chapters(&project).last().unwrap().clone();
+    assert_eq!(chapter["rawTitle"], "第6章 门外");
+    let exported = f.request("GET", &format!("/api/projects/{project}/export?format=txt"), Value::Null).unwrap();
+    assert!(exported["text"].as_str().unwrap().contains("第6章 门外"));
+    assert!(!exported["text"].as_str().unwrap().contains("第6章 第六章"));
+    assert_eq!(database::one(&f.db, "SELECT rawTitle FROM Chapter WHERE id=?", &[chapter["id"].clone()]).unwrap()["rawTitle"], "第6章 第六章门外");
+    let reopened = database::open(f.dir.path()).unwrap();
+    assert_eq!(database::one(&reopened, "SELECT firstNumber FROM NativeWorkNumbering WHERE workId=?", &[json!(work)]).unwrap()["firstNumber"], 6);
+    assert_eq!(f.request("GET", &format!("/api/works/{work}"), Value::Null).unwrap()["work"]["chapters"], first["work"]["chapters"]);
+}

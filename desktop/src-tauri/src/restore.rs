@@ -308,6 +308,7 @@ pub fn restore(db: &mut Connection, root: &Path, input: &Value) -> Result<Value>
                     ("version", number(row, "version", 1)),
                 ],
             )?;
+            if let Some(first) = row["firstChapterNumber"].as_i64().filter(|n| *n > 0) { crate::chapter_titles::save_plan(&tx, &new_id, first)?; }
             if let Some(old) = row["id"].as_str() {
                 if plans.insert(old.to_string(), new_id).is_some() {
                     return Err("备份中的方向编号重复。".into());

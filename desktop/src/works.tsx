@@ -6,7 +6,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { api } from "./bridge";
 import { MergeWorkButton } from "./merge-work-button";
 
-export type WorkChapter = { id: string; index: number; title: string | null; content: string; version: number };
+export type WorkChapter = { id: string; index: number; chapterNumber: number; title: string | null; content: string; version: number };
 export type Work = { id: string; title: string; sourceProjectId: string | null; sourceProjectName: string; direction: string; generatedAt: string; chapterCount: number; charCount: number; chapters: WorkChapter[]; memoryCount: number; mergedAt: string | null };
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Shanghai" });
 export function generationTime(value: string) { return dateFormat.format(new Date(value)); }

@@ -68,8 +68,12 @@ fn parse_json(value: &Value, field: &str, fallback: Value) -> Value {
     serde_json::from_str(value[field].as_str().unwrap_or("")).unwrap_or(fallback)
 }
 
-fn plan_view(mut row: Value, draft_count: i64) -> Value {
+fn plan_view(mut row: Value, draft_count: i64, first: i64) -> Value {
     row["outline"] = parse_json(&row, "outlineJson", json!([]));
+    row["firstChapterNumber"] = json!(first);
+    if let Some(items) = row["outline"].as_array_mut() {
+        for item in items { item["chapterNumber"] = json!(first + item["index"].as_i64().unwrap_or(1) - 1); item["title"] = json!(crate::chapter_titles::display_title(&item["title"])); }
+    }
     row["relatedThreads"] = parse_json(&row, "relatedThreadsJson", json!([]));
     row["draftCount"] = json!(draft_count);
     for field in ["outlineJson", "relatedThreadsJson"] {
@@ -91,7 +95,7 @@ pub(crate) fn plan(db: &Connection, project_id: &str, plan_id: &str) -> Result<V
     )?[0]["count"]
         .as_i64()
         .unwrap_or(0);
-    Ok(plan_view(row, count))
+    Ok(plan_view(row, count, crate::chapter_titles::plan_first(db, plan_id)?))
 }
 
 fn list_plans(db: &Connection, project_id: &str) -> Result<Vec<Value>> {
@@ -102,8 +106,9 @@ fn list_plans(db: &Connection, project_id: &str) -> Result<Vec<Value>> {
     Ok(query(db,"SELECT * FROM ContinuationPlan WHERE projectId=? ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END,createdAt DESC",
         &[json!(project_id)])?.into_iter().map(|row|{
             let count=counts.get(row["id"].as_str().unwrap_or("")).copied().unwrap_or(0);
-            plan_view(row,count)
-        }).collect())
+            let first = crate::chapter_titles::plan_first(db, row["id"].as_str().unwrap_or(""))?;
+            Ok(plan_view(row,count,first))
+        }).collect::<Result<Vec<_>>>()?)
 }
 
 fn text(body: &Value, field: &str, max: usize) -> Result<String> {
@@ -181,10 +186,10 @@ fn normalize_outline(raw: &Value) -> Result<Value> {
     }
     let mut clean = Vec::new();
     for item in rows {
-        let title = item["title"].as_str().unwrap_or("").trim();
-        if title.is_empty() {
+        if item["title"].as_str().unwrap_or("").trim().is_empty() {
             continue;
         }
+        let title = crate::chapter_titles::display_title(&item["title"]);
         if title.encode_utf16().count() > 200 {
             return Err("章纲标题过长。".into());
         }
@@ -258,7 +263,7 @@ pub fn update_plan(
     let outline = if let Some(raw) = body.get("outline") {
         normalize_outline(raw)?
     } else {
-        current["outline"].clone()
+        normalize_outline(&current["outline"])?
     };
     let related = if let Some(raw) = body.get("relatedThreads") {
         let value = if let Some(text) = raw.as_str() {
@@ -289,9 +294,12 @@ pub fn update_plan(
         current["status"].as_str().unwrap_or("draft")
     };
     let material = changed
-        || outline != current["outline"]
+        || outline != normalize_outline(&current["outline"])?
         || related != current["relatedThreads"]
         || selected;
+    if outline.as_array().is_some_and(|rows| !rows.is_empty()) {
+        crate::chapter_titles::save_plan(&tx, plan_id, current["firstChapterNumber"].as_i64().unwrap_or(1))?;
+    }
     if material {
         execute(&tx,"UPDATE ContinuationPlan SET direction=?,summary=?,outlineJson=?,relatedThreadsJson=?,status=?,version=version+1,updatedAt=? WHERE id=?",
         &[json!(direction),json!(summary),json!(outline.to_string()),json!(related.to_string()),json!(status),json!(now()),json!(plan_id)])?;
@@ -331,14 +339,16 @@ fn delete_plan(db: &mut Connection, project_id: &str, plan_id: &str) -> Result<V
     Ok(json!({"deleted":true}))
 }
 
-fn draft_view(mut row: Value) -> Value {
+fn draft_view(db: &Connection, mut row: Value) -> Result<Value> {
+    row["chapterNumber"] = json!(crate::chapter_titles::draft_number(db, &row)?);
+    row["title"] = json!(crate::chapter_titles::display_title(&row["title"]));
     row["outlineItem"] = parse_json(&row, "outlineItemJson", Value::Null);
     row["continuityCheckedAt"] =
         parse_json(&row, "continuityCheckJson", json!({}))["checkedAt"].clone();
     for field in ["outlineItemJson", "continuityCheckJson"] {
         row.as_object_mut().unwrap().remove(field);
     }
-    row
+    Ok(row)
 }
 
 fn draft(db: &Connection, project_id: &str, draft_id: &str) -> Result<Value> {
@@ -347,7 +357,7 @@ fn draft(db: &Connection, project_id: &str, draft_id: &str) -> Result<Value> {
         "SELECT * FROM DraftChapter WHERE id=? AND projectId=?",
         &[json!(draft_id), json!(project_id)],
     )?;
-    Ok(draft_view(row))
+    draft_view(db, row)
 }
 
 fn list_drafts(db: &Connection, project_id: &str, plan_id: &str) -> Result<Vec<Value>> {
@@ -358,8 +368,8 @@ fn list_drafts(db: &Connection, project_id: &str, plan_id: &str) -> Result<Vec<V
         &[json!(project_id), json!(plan_id)],
     )?
     .into_iter()
-    .map(draft_view)
-    .collect())
+    .map(|row| draft_view(db, row))
+    .collect::<Result<Vec<_>>>()?)
 }
 
 fn update_draft(
@@ -376,7 +386,7 @@ fn update_draft(
         if body["title"].is_null() {
             None
         } else {
-            let value = text(body, "title", 200)?;
+            let value = crate::chapter_titles::clean(&text(body, "title", 200)?);
             (!value.is_empty()).then_some(value)
         }
     } else {

@@ -76,7 +76,7 @@ pub fn run(
     };
     let prompt=format!("{}\n\n【可引用的记忆编号】\n{}\n\n【同方向其他续写正文（带章序，可能节选）】\n{}\n\n【本章章纲】\n{}\n\n【续写草稿：第 {} 章《{}》】\n{}\n\n只返回 JSON：{}。{}",
         ctx.text,lines.join("\n"),history.text,draft["outlineItemJson"].as_str().unwrap_or("{}"),
-        draft["index"],draft["title"].as_str().unwrap_or("（无标题）"),draft["content"].as_str().unwrap_or(""),
+        crate::chapter_titles::draft_number(db, &draft)?,crate::chapter_titles::display_title(&draft["title"]),draft["content"].as_str().unwrap_or(""),
         format,if check{"最多 12 个问题，未发现冲突时 issues 为空数组。"}else{"最多 20 条。非悬念条目将标为推断，作者确认后才写入记忆。没有变化时 items 为空数组。"});
     let (output, usage) = model::request_tracked(
         db,
@@ -236,8 +236,8 @@ pub fn run(
             let title = if category == "chapter-note" {
                 Some(format!(
                     "草稿笔记：第 {} 章 · {}",
-                    draft["index"],
-                    draft["title"].as_str().unwrap_or("（无标题）")
+                    crate::chapter_titles::draft_number(&tx, &draft)?,
+                    crate::chapter_titles::display_title(&draft["title"])
                 ))
             } else {
                 item["title"]

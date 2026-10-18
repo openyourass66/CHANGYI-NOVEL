@@ -66,3 +66,11 @@ CREATE TABLE IF NOT EXISTS NativeWorkMerge (
  memoryConflicts INTEGER NOT NULL,
  memorySkipped INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS NativePlanNumbering (
+ planId TEXT PRIMARY KEY REFERENCES ContinuationPlan(id) ON DELETE CASCADE,
+ firstNumber INTEGER NOT NULL CHECK(firstNumber>0)
+);
+CREATE TABLE IF NOT EXISTS NativeWorkNumbering (
+ workId TEXT PRIMARY KEY REFERENCES NativeWork(id) ON DELETE CASCADE,
+ firstNumber INTEGER NOT NULL CHECK(firstNumber>0)
+);

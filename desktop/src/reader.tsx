@@ -40,7 +40,7 @@ function WorkReader({ work }: { work: Work }) {
   }, [chapter?.id, positionKey, progressKey]);
   async function exportText() {
     try {
-      await invoke("save_text", { fileName: `${work.title}.txt`, text: chapters.map((item) => `第${item.index}章 ${item.title ?? ""}\n\n${item.content}`).join("\n\n") });
+      await invoke("save_text", { fileName: `${work.title}.txt`, text: chapters.map((item) => `第${item.chapterNumber}章 ${item.title ?? ""}\n\n${item.content}`).join("\n\n") });
       setError("");
     } catch (e) { setError(String(e)); }
   }
@@ -53,7 +53,7 @@ function WorkReader({ work }: { work: Work }) {
       <aside className="reader-directory space-y-4 border-r p-4">
         <div className="space-y-2"><h2 className="text-sm font-semibold">{work.direction}</h2><p className="text-xs opacity-70">来源：{work.sourceProjectName}</p></div>
         <h2 className="text-sm font-medium">目录 · {chapters.length} 章</h2>
-        <nav aria-label="续写章节目录" className="space-y-1">{chapters.map((item) => <button key={item.id} aria-current={item.id === chapter?.id ? "page" : undefined} className="reader-chapter w-full rounded-md px-3 py-3 text-left text-sm" onClick={() => openChapter(item.id)}>第 {item.index} 章 · {item.title || "无标题"}</button>)}</nav>
+        <nav aria-label="续写章节目录" className="space-y-1">{chapters.map((item) => <button key={item.id} aria-current={item.id === chapter?.id ? "page" : undefined} className="reader-chapter w-full rounded-md px-3 py-3 text-left text-sm" onClick={() => openChapter(item.id)}>第 {item.chapterNumber} 章 · {item.title || "无标题"}</button>)}</nav>
         <Button variant="outline" disabled={!chapters.length} onClick={() => void exportText()}>导出全文</Button>
       </aside>
       <section className="min-w-0">
@@ -66,7 +66,7 @@ function WorkReader({ work }: { work: Work }) {
         {error && <p role="alert" className="px-6 py-3 text-sm text-destructive">{error}</p>}
         <div ref={viewport} tabIndex={0} aria-label="小说正文" className="reader-viewport" onScroll={(e) => { if (chapter) localStorage.setItem(positionKey, String(e.currentTarget.scrollTop)); }}>
           {!chapter ? <div className="px-8 py-20 text-center"><h2 className="text-xl font-medium">这部作品暂无正文</h2><Button asChild className="mt-6"><Link to="/works">返回作品库</Link></Button></div> : <article className="mx-auto px-6 py-10 sm:px-10" style={{ maxWidth: preferences.width, fontSize: preferences.size, lineHeight: preferences.line }}>
-            <p className="mb-3 text-sm opacity-65">第 {chapter.index} 章 · {chapter.content.length.toLocaleString()} 字</p>
+            <p className="mb-3 text-sm opacity-65">第 {chapter.chapterNumber} 章 · {chapter.content.length.toLocaleString()} 字</p>
             <h2 className="mb-8 text-2xl font-semibold">{chapter.title || "无标题"}</h2>
             <div className="reader-prose">{chapter.content.split(/\n+/).filter(Boolean).map((paragraph,i) => <p key={i}>{paragraph}</p>)}</div>
             <footer className="mt-12 flex flex-wrap items-center justify-between gap-3 border-t pt-6 text-sm">
