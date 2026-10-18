@@ -56,6 +56,17 @@ fn choice(row: &Value, name: &str, values: &[&str], required: bool) -> Result<()
     }
     Ok(())
 }
+pub const DRAFT_MIN_CHARS: usize = 1800;
+pub const DRAFT_MAX_CHARS: usize = 3500;
+
+pub fn validate_draft(content: &str) -> Result<()> {
+    let count = content.chars().filter(|ch| !ch.is_whitespace()).count();
+    if !(DRAFT_MIN_CHARS..=DRAFT_MAX_CHARS).contains(&count) {
+        return Err(format!("正文为 {count} 字，须为 {DRAFT_MIN_CHARS}–{DRAFT_MAX_CHARS} 字（不含空白）；请重新输出完整正文"));
+    }
+    Ok(())
+}
+
 pub fn validate(task: &str, value: &Value) -> Result<()> {
     if !value.is_object() {
         return Err("输出必须是 JSON 对象".into());
@@ -129,7 +140,8 @@ pub fn validate(task: &str, value: &Value) -> Result<()> {
         }
         "draft" => {
             text(value, "title", 1, 120, true)?;
-            text(value, "content", 50, 200000, true)?;
+            text(value, "content", 1, 200000, true)?;
+            validate_draft(value["content"].as_str().unwrap_or(""))?;
         }
         "continuity-check" => {
             for row in rows(value, "issues", 0, 12, true)? {
@@ -143,6 +155,10 @@ pub fn validate(task: &str, value: &Value) -> Result<()> {
                 text(row, "description", 1, 600, true)?;
                 strings(row, "draftExcerpts", 4, 300)?;
                 strings(row, "memoryRefs", 6, 16)?;
+                for reference in rows(row, "draftRefs", 0, 6, false)? {
+                    text(reference, "ref", 1, 16, true)?;
+                    text(reference, "excerpt", 1, 300, true)?;
+                }
             }
         }
         "draft-memory" => {
@@ -174,4 +190,31 @@ pub fn validate(task: &str, value: &Value) -> Result<()> {
         _ => return Err("未知模型任务".into()),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn generated_drafts_enforce_length_without_whitespace_padding() {
+        for count in [1799, 3501] {
+            assert!(validate(
+                "draft",
+                &serde_json::json!({"title":"边界","content":"字".repeat(count)})
+            )
+            .is_err());
+        }
+        for count in [1800, 3500] {
+            assert!(validate(
+                "draft",
+                &serde_json::json!({"title":"边界","content":"字".repeat(count)})
+            )
+            .is_ok());
+        }
+        assert!(validate_draft(&format!("{}{}", "字".repeat(100), " \n\t".repeat(2000))).is_err());
+        assert!(
+            validate_draft(&"😀".repeat(1800)).is_ok(),
+            "字符不能按 UTF-16 单位重复计数"
+        );
+    }
 }

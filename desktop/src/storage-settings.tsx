@@ -45,6 +45,11 @@ export function NativeStorageSettings() {
     </div>
     {info && directory!==info.dataDir && <p className="break-all text-muted-foreground">当前使用：{info.dataDir}</p>}
     <p className="leading-relaxed text-muted-foreground">更换到空文件夹会自动带上当前数据；选中已有工作区会直接打开。原目录会保留。</p>
+    <div className="rounded-md border bg-muted/30 p-3 leading-relaxed text-muted-foreground">
+      <p className="font-medium text-foreground">完整备份</p>
+      <p>关闭应用后，复制整个当前数据文件夹（包括隐藏的 .changyi-storage.json）。完整工作区保留项目、独立作品库、流程记录和模型配置。</p>
+      <p className="mt-2">项目 JSON 只用于恢复单个项目，不包含独立作品库、自动流程、全局设置和模型配置；阅读进度与阅读样式保存在当前设备，需另外保留。</p>
+    </div>
     {error && <p role="alert" className="text-destructive">{error}</p>}
     <div className="flex flex-wrap gap-2 border-t pt-4">
       <Button className="h-11" disabled={pending || !directory || directory===info?.dataDir} onClick={()=>void apply()}>

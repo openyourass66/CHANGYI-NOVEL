@@ -16,9 +16,10 @@ test.beforeEach(async ({ page }) => {
   lines.on("line", (line) => pending.shift()?.resolve(JSON.parse(line)));
   process.on("error", (error) => { for (const waiter of pending.splice(0)) waiter.reject(error); });
   process.on("exit", () => { for (const waiter of pending.splice(0)) waiter.reject(new Error("Native test workspace stopped")); });
-  await page.exposeFunction("nativeTestInvoke", (command: string, args: { request?: unknown; fileName?: string; text?: string }) => {
+  await page.exposeFunction("nativeTestInvoke", (command: string, args: { request?: unknown; fileName?: string; text?: string; projectId?: string; format?: string }) => {
     if (command === "get_storage") return { supported: true, dataDir: directory, needsSetup: false };
     if (command === "save_text") { exports.push({ fileName: args.fileName!, text: args.text! }); return true; }
+    if (command === "save_export") { exports.push({ fileName: `project.${args.format}`, text: JSON.stringify(args) }); return true; }
     if (command !== "api_request") return null;
     return new Promise((resolve, reject) => {
       pending.push({ resolve, reject });
@@ -61,6 +62,13 @@ test("project, document Worker, native database, chapter correction, and navigat
   await page.getByRole("link", { name: "设置", exact: true }).click();
   await page.getByRole("link", { name: "返回项目", exact: true }).click();
   await expect(page.getByLabel("第一章 新标题 正文（只读）")).toContainText("甲😀乙丙");
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  await page.getByRole("menuitem", { name: "导出项目数据（JSON）" }).click();
+  await expect(page.getByRole("dialog")).toContainText("不包含独立作品库");
+  await expect(page.getByRole("dialog")).toContainText(".changyi-storage.json");
+  const exported = await page.evaluate(() => (window as unknown as { readNativeExports: () => Promise<{fileName:string}[]> }).readNativeExports());
+  expect(exported.some((file) => file.fileName === "project.json")).toBeTruthy();
+  await page.getByRole("button", { name: "知道了", exact: true }).click();
   await page.screenshot({ path: ".verify/chapters.png", fullPage: true });
 });
 
@@ -130,6 +138,8 @@ test("memory workbench saves revisions, knowledge, and imported notes", async ({
 test("settings creates and edits an encrypted model profile", async ({ page }) => {
   await page.goto("/#/settings");
   await expect(page.getByText("还没有模型档案")).toBeVisible();
+  await expect(page.getByText("完整备份", { exact: true })).toBeVisible();
+  await expect(page.getByText(/完整工作区保留项目、独立作品库/)).toBeVisible();
   await page.getByRole("button", { name: "新增档案" }).first().click();
   await page.locator("#pf-name").fill("本地测试");
   await page.locator("#pf-provider").click();
@@ -235,7 +245,7 @@ test("continuation saves a manual direction and outline", async ({ page }) => {
 
 test("draft generation, continuity evidence, and memory extraction use the native backend", async ({ page }) => {
   const outputs = [
-    { title: "城门", content: "他沿着熟悉的街道缓缓前行，旧城的石墙仍带着雨后的凉意。远处钟声响起，提醒他十年前的线索还没有结束。他停在城门前，决定先去寻找当年的目击者。" },
+    { title: "城门", content: "他沿着熟悉的街道缓缓前行，旧城的石墙仍带着雨后的凉意。远处钟声响起，提醒他十年前的线索还没有结束。他停在城门前，决定先去寻找当年的目击者。".repeat(30) },
     { issues: [{ category: "设定", severity: "warning", description: "城门状态需要核对", draftExcerpts: ["他停在城门前"], memoryRefs: ["M1"] }] },
     { items: [{ category: "chapter-note", key: "", title: "", content: "主角寻找目击者。" }] },
   ];
@@ -348,7 +358,7 @@ test("continuation steps isolate results by stage and selected direction", async
 test("automatic progress follows all four stages and keeps the rail and results synchronized", async ({ page }) => {
   const outputs = [
     { chapters: [{ title: "启程", summary: "主角出发寻找同伴", beats: [], relatedThreads: [] }], notes: "", conflicts: [] },
-    { title: "启程", content: "主角沿着故乡的石板路向前走，远处的钟声在山间回荡。他记得临行前的约定，决定先找到旧日的同伴，再一同查明事情的经过。眼前的街巷安静如常，新的旅程从这里开始。" },
+    { title: "启程", content: "主角沿着故乡的石板路向前走，远处的钟声在山间回荡。他记得临行前的约定，决定先找到旧日的同伴，再一同查明事情的经过。眼前的街巷安静如常，新的旅程从这里开始。".repeat(30) },
     { issues: [] }, { items: [] }, { title: "启程", content: "过短" }, { title: "启程", content: "仍然过短" },
   ];
   const releases: (() => void)[] = [];

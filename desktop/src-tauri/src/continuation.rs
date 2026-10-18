@@ -397,16 +397,7 @@ fn update_draft(
         &[json!(title),json!(content),json!(if changed{"none"}else{current["memoryUpdateStatus"].as_str().unwrap_or("none")}),
             json!(now()),json!(draft_id)])?;
     if changed {
-        execute(
-            &tx,
-            "UPDATE DraftChapter SET continuityCheckJson='{}' WHERE id=?",
-            &[json!(draft_id)],
-        )?;
-        execute(
-            &tx,
-            "DELETE FROM ContinuityIssue WHERE draftId=?",
-            &[json!(draft_id)],
-        )?;
+        invalidate_draft_checks(&tx, project_id, draft_id, current["planId"].as_str())?;
         execute(
             &tx,
             "DELETE FROM MemoryProposal WHERE draftId=? AND state='pending'",
@@ -418,12 +409,15 @@ fn update_draft(
 }
 
 fn delete_draft(db: &Connection, project_id: &str, draft_id: &str) -> Result<Value> {
-    draft(db, project_id, draft_id)?;
+    let current = draft(db, project_id, draft_id)?;
+    let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
+    invalidate_draft_checks(&tx, project_id, draft_id, current["planId"].as_str())?;
     execute(
-        db,
+        &tx,
         "DELETE FROM DraftChapter WHERE id=?",
         &[json!(draft_id)],
     )?;
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(json!({"deleted":true}))
 }
 
@@ -465,4 +459,37 @@ fn update_issue(db: &Connection, project_id: &str, issue_id: &str, body: &Value)
         &[json!(status), json!(now()), json!(issue_id)],
     )?;
     issue(db, project_id, issue_id)
+}
+
+pub(crate) fn invalidate_checks(db: &Connection, project: &str, plan: &str) -> Result<()> {
+    execute(db, "DELETE FROM ContinuityIssue WHERE draftId IN (SELECT id FROM DraftChapter WHERE projectId=? AND planId=?)", &[json!(project),json!(plan)])?;
+    execute(
+        db,
+        "UPDATE DraftChapter SET continuityCheckJson='{}' WHERE projectId=? AND planId=?",
+        &[json!(project), json!(plan)],
+    )?;
+    Ok(())
+}
+
+fn invalidate_draft_checks(
+    db: &Connection,
+    project: &str,
+    draft: &str,
+    plan: Option<&str>,
+) -> Result<()> {
+    if let Some(plan) = plan {
+        return invalidate_checks(db, project, plan);
+    }
+    // 恢复旧备份时可能有未关联方向的草稿，仍允许作者编辑或删除。
+    execute(
+        db,
+        "DELETE FROM ContinuityIssue WHERE projectId=? AND draftId=?",
+        &[json!(project), json!(draft)],
+    )?;
+    execute(
+        db,
+        "UPDATE DraftChapter SET continuityCheckJson='{}' WHERE projectId=? AND id=?",
+        &[json!(project), json!(draft)],
+    )?;
+    Ok(())
 }

@@ -104,7 +104,7 @@ export function ContinuationResults({ projectId, planId, drafts, kind, reloadKey
             {issue.evidence.length > 0 && <div className="space-y-2 border-l-2 pl-3 text-sm text-muted-foreground">
               <p className="text-xs font-medium">对应证据</p>
               {issue.evidence.map((evidence, index) => <div key={index} className="space-y-1">
-                <p className="text-xs">{evidence.kind === "draft" ? "草稿片段" : evidence.kind === "memory" ? "记忆依据" : "原文依据"}</p>
+                <p className="text-xs">{evidence.kind === "draft" ? `草稿片段 · ${draftLabel(evidence.draftId ?? null)}` : evidence.kind === "memory" ? "记忆依据" : "原文依据"}</p>
                 {evidence.excerpt && <blockquote className="whitespace-pre-wrap">{evidence.excerpt}</blockquote>}
                 {evidence.entryId && <Link className="underline" href={`/projects/${projectId}/memory?entry=${evidence.entryId}`}>查看对应记忆</Link>}
                 {evidence.chapterId && <Link className="underline" href={`/projects/${projectId}`}>查看原文章节</Link>}

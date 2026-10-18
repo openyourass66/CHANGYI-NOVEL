@@ -2,7 +2,9 @@
 
 长忆把长篇小说的导入、章节校对、故事记忆维护和续写整合到一个本机工作台中。原文以只读方式保存，分析结论、记忆和续写草稿单独记录，适合个人管理和延续长篇故事。
 
-已发布 Windows 桌面版：**v0.1.6**；当前源码桌面版本为 **v0.1.7**，包含发行包清理及 PDF 导入兼容性修复。
+当前主要开发版本为 **Tauri 原生桌面版 0.2.6**，功能、安装包位置及开发方式见 [原生桌面版说明](desktop/README.md)。本次源码完善包含相关记忆检索、跨续写章节检查与正文长度校验，尚未重新打包。
+
+以下在线下载链接为旧 Electron 版 **v0.1.6**；旧版源码版本为 **v0.1.7**。原生版与旧版使用独立工作区，复制和迁移前请阅读数据兼容说明。
 
 [下载安装包](https://github.com/openyourass66/CHANGYI-NOVEL/releases/download/v0.1.6/Changyi-Setup-0.1.6-x64.exe) · [版本说明与校验文件](https://github.com/openyourass66/CHANGYI-NOVEL/releases/tag/v0.1.6) · [所有版本](https://github.com/openyourass66/CHANGYI-NOVEL/releases)
 
@@ -17,7 +19,7 @@
 
 项目面向单用户本地使用，目前不提供账号或云端同步。扫描版 PDF 的 OCR 暂不支持。
 
-## Windows 桌面版
+## 旧 Electron 桌面版
 
 ### 下载安装
 
@@ -80,7 +82,7 @@ Windows 标题栏与应用导航合并显示，顶部空白区域支持拖动和
 
 ## 源码开发
 
-项目以 `web/` 单体应用为维护入口。Windows 桌面壳启动同一套 Next.js 应用，业务页面、API 和 SQLite 数据库共用原有实现。
+当前功能开发以 `desktop/` 原生桌面版为主，React/Vite 前端复用 `web/src` 的部分组件，业务由 Rust/SQLite 实现。下方 Web 与 Electron 命令用于维护旧版；原生版请使用 [原生开发与打包流程](desktop/README.md#开发与打包)。
 
 `desktop/` 为 Tauri 2 + React/Vite + Rust + SQLite 的轻量原生桌面版，已接入项目库、文档导入、故事记忆、分析与续写工作流。最新源码新增默认自动采纳分析记忆、选定方向后自动续写、独立作品库及小说阅读器，以及仅在整项任务完成或需要处理时触发的声音提醒。自动化选项统一放在设置页，完成的作品独立保存并显示生成日期和时间。原生版使用独立工作区；开发方式、自动化规则和数据兼容说明见 [原生桌面版说明](desktop/README.md)。
 
@@ -168,6 +170,7 @@ Remove-Item Env:CHANGYI_TEST_STANDALONE_DIR
 ```text
 .
 ├── README.md                  # 功能、安装、数据与开发指南
+├── desktop/                   # 当前原生桌面版：React/Vite + Tauri/Rust/SQLite
 └── web/
     ├── desktop-shell/         # Electron 桌面壳与工作区管理
     ├── scripts/               # 桌面运行资源准备

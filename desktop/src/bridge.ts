@@ -75,7 +75,9 @@ export function installBridge() {
     const match = /^\/api\/projects\/([^/]+)\/(export|memory\/export)$/.exec(url.pathname);
     if (url.origin !== location.origin || !match) return;
     event.preventDefault();
-    void invoke("save_export", { projectId: match[1], format: match[2] === "memory/export" ? "memory-md" : url.searchParams.get("format") ?? "json" }).catch((error: unknown) => {
+    const format = match[2] === "memory/export" ? "memory-md" : url.searchParams.get("format") ?? "json";
+    if (format === "json") notify.info("项目 JSON 用于恢复单个项目。", { description: "不包含独立作品库、自动流程、全局设置和模型配置。完整备份请关闭应用后复制整个数据文件夹，包括隐藏的 .changyi-storage.json；阅读进度与样式保存在当前设备。" });
+    void invoke("save_export", { projectId: match[1], format }).catch((error: unknown) => {
       notify.error(String(error));
     });
   });

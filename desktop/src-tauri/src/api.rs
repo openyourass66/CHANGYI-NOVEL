@@ -493,7 +493,7 @@ fn export_project(db: &Connection, project_id: &str, path: &str) -> Result<Value
             json!({"text":format!("\u{feff}{}\n",parts.join("\n\n\n")),"fileName":format!("{}.txt",p["name"].as_str().unwrap_or("project"))}),
         );
     }
-    let mut out = json!({"app":"novel-continuation","exportVersion":2,"exportedAt":chrono::Utc::now().to_rfc3339(),"project":p});
+    let mut out = json!({"app":"novel-continuation","exportVersion":2,"backupScope":{"kind":"project","excludes":["works","workflows","globalSettings","modelProfiles","readerPreferences"],"fullBackup":"关闭应用后复制整个工作区，包括隐藏的 .changyi-storage.json；阅读进度与样式需保留当前设备数据。"},"exportedAt":chrono::Utc::now().to_rfc3339(),"project":p});
     for (key, table, order) in [
         ("sources", "SourceDocument", "importedAt"),
         ("chapters", "Chapter", "sortOrder"),

@@ -254,7 +254,7 @@ fn anthropic_protocol_and_local_endpoint_validation() {
                 break;
             }
         }
-        let output = json!({"title":"测试","content":"正文".repeat(40)}).to_string();
+        let output = json!({"title":"测试","content":"正文".repeat(1000)}).to_string();
         let payload=json!({"content":[{"type":"text","text":output}],"usage":{"input_tokens":7,"output_tokens":11}}).to_string();
         write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
     });
@@ -802,7 +802,7 @@ fn draft_workflow_checks_continuity_extracts_memory_and_preserves_author_edits()
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
         let outputs = [
-            json!({"title":"重返旧城","content":"他沿着熟悉的街道缓缓前行，旧城的石墙仍带着雨后的凉意。远处钟声响起，提醒他十年前的线索还没有结束。他停在城门前，决定先去寻找当年的目击者。"}),
+            json!({"title":"重返旧城","content":"他沿着熟悉的街道缓缓前行，旧城的石墙仍带着雨后的凉意。远处钟声响起，提醒他十年前的线索还没有结束。他停在城门前，决定先去寻找当年的目击者。".repeat(30)}),
             json!({"issues":[{"category":"设定","severity":"warning","description":"城门状态需核对","draftExcerpts":["他停在城门前"],"memoryRefs":["M1"]}]}),
             json!({"items":[{"category":"chapter-note","key":"","title":"","content":"主角寻找目击者"}]}),
         ];
@@ -1352,6 +1352,8 @@ fn restore_and_export_preserve_links_and_exclude_profiles() {
     assert!(!raw.contains("private-key-sentinel"));
     assert!(!raw.contains("ModelProfile"));
     let snapshot: Value = serde_json::from_str(raw).unwrap();
+    assert_eq!(snapshot["backupScope"]["kind"], "project");
+    assert!(snapshot["backupScope"]["excludes"].as_array().unwrap().contains(&json!("works")));
     assert_ne!(snapshot["chapters"][0]["id"], "ch-old");
     assert_eq!(
         snapshot["memoryEntries"][0]["citations"][0]["chapterId"],
@@ -1502,6 +1504,12 @@ fn reject_unsafe_paths_and_unknown_api() {
 }
 
 fn automation_mock(outputs: Vec<Value>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+    automation_mock_with_hook(outputs, |_| {})
+}
+fn automation_mock_with_hook(
+    outputs: Vec<Value>,
+    mut hook: impl FnMut(usize) + Send + 'static,
+) -> (String, std::thread::JoinHandle<Vec<String>>) {
     use std::{
         io::{Read, Write},
         net::TcpListener,
@@ -1552,6 +1560,7 @@ fn automation_mock(outputs: Vec<Value>) -> (String, std::thread::JoinHandle<Vec<
                 }
             }
             requests.push(String::from_utf8_lossy(&bytes).into_owned());
+            hook(requests.len());
             let payload =
                 json!({"choices":[{"message":{"content":output.to_string()}}]}).to_string();
             write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
@@ -1591,7 +1600,7 @@ fn automation_outline() -> Value {
     json!({"chapters":[{"title":"启程","summary":"主角出发","beats":[],"relatedThreads":[]},{"title":"归来","summary":"主角归来","beats":[],"relatedThreads":[]}],"notes":"","conflicts":[]})
 }
 fn automation_draft(title: &str) -> Value {
-    json!({"title":title,"content":"主角沿着故乡的石板路向前走，远处的钟声在山间回荡。他记得临行前的约定，决定先找到旧日的同伴，再一同查明事情的经过。眼前的街巷安静如常，新的旅程从这里开始。"})
+    json!({"title":title,"content":"主角沿着故乡的石板路向前走，远处的钟声在山间回荡。他记得临行前的约定，决定先找到旧日的同伴，再一同查明事情的经过。眼前的街巷安静如常，新的旅程从这里开始。".repeat(30)})
 }
 
 #[test]
@@ -2049,4 +2058,279 @@ fn automation_settings_are_global_and_migrate_existing_disabled_preferences() {
         changyi_desktop::automation::global_settings(&db).unwrap(),
         json!({"autoAccept":false,"autoSynthesis":true})
     );
+}
+
+fn wait_run(f: &mut Fixture, run: &str, expected: &str) -> Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let row = f
+            .request("GET", &format!("/api/analysis/{run}"), Value::Null)
+            .unwrap()["run"]
+            .clone();
+        if ["done", "failed", "canceled"].contains(&row["status"].as_str().unwrap_or("")) {
+            assert_eq!(row["status"], expected, "{row}");
+            return row;
+        }
+        assert!(std::time::Instant::now() < deadline, "{row}");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn draft_length_repairs_once_and_rejects_failed_repair_without_overwriting() {
+    for repaired in [true, false] {
+        let mut f = Fixture::new();
+        let restored = f
+            .request("POST", "/api/projects/restore", backup())
+            .unwrap();
+        let project = restored["project"]["id"].as_str().unwrap().to_string();
+        let plan = f
+            .request(
+                "GET",
+                &format!("/api/projects/{project}/plans"),
+                Value::Null,
+            )
+            .unwrap()["plans"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let (address, server) = automation_mock(vec![
+            json!({"title":"未完成","content":"字".repeat(1500)}),
+            json!({"title":"修复","content":"字".repeat(if repaired {2000} else {1600})}),
+        ]);
+        let profile = automation_profile(&mut f, &address);
+        let run = f.request("POST", &format!("/api/projects/{project}/analysis"), json!({"taskType":"draft","profileId":profile,"payload":{"planId":plan,"outlineIndex":1}})).unwrap()["runId"].as_str().unwrap().to_string();
+        wait_run(&mut f, &run, if repaired { "done" } else { "failed" });
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].contains("1800–3500"));
+        let drafts = f
+            .request(
+                "GET",
+                &format!("/api/projects/{project}/plans/{plan}/drafts"),
+                Value::Null,
+            )
+            .unwrap();
+        assert_eq!(
+            drafts["drafts"][0]["content"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            if repaired { 2000 } else { 4 }
+        );
+        if repaired {
+            let draft = drafts["drafts"][0]["id"].as_str().unwrap();
+            f.request(
+                "PATCH",
+                &format!("/api/projects/{project}/drafts/{draft}"),
+                json!({"content":"作者短文"}),
+            )
+            .unwrap();
+        }
+    }
+}
+
+#[test]
+fn cross_draft_checks_cite_real_evidence_and_invalidate_after_edit_or_delete() {
+    let mut input = backup();
+    input["continuityIssues"] = json!([]);
+    input["memoryProposals"] = json!([]);
+    input["continuationPlans"] = json!([{"id":"a","direction":"甲方向","outline":[{"index":1},{"index":2}]},{"id":"b","direction":"乙方向","outline":[{"index":1}]}]);
+    input["draftChapters"] = json!([
+        {"id":"a1","planId":"a","index":1,"title":"前章","content":"😀玄铁令只能由掌门开启。"},
+        {"id":"a2","planId":"a","index":2,"title":"本章","content":"林舟直接打开玄铁令。"},
+        {"id":"b1","planId":"b","index":1,"title":"另一方向","content":"其他方向秘密不能发送。"}]);
+    let mut f = Fixture::new();
+    let project = f.request("POST", "/api/projects/restore", input).unwrap()["project"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let rows = database::query(
+        &f.db,
+        "SELECT id,planId,\"index\" FROM DraftChapter WHERE projectId=? ORDER BY content",
+        &[json!(project)],
+    )
+    .unwrap();
+    let first = rows
+        .iter()
+        .find(|row| {
+            row["index"] == 1
+                && rows
+                    .iter()
+                    .any(|other| other["planId"] == row["planId"] && other["index"] == 2)
+        })
+        .unwrap();
+    let plan = first["planId"].as_str().unwrap().to_string();
+    let prior = first["id"].as_str().unwrap().to_string();
+    let target = rows.iter().find(|row| row["index"] == 2).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let other = rows.iter().find(|row| row["planId"] != plan).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let issue = json!({"category":"设定","severity":"error","description":"开启条件不符","draftExcerpts":["直接打开玄铁令"],"memoryRefs":[],"draftRefs":[{"ref":"D1","excerpt":"玄铁令只能由掌门开启"},{"ref":"D99","excerpt":"其他方向秘密不能发送"}]});
+    let mut invalid = issue.clone();
+    invalid["draftExcerpts"] = json!(["虚构的本章证据"]);
+    let (address, server) = automation_mock(vec![
+        json!({"issues":[issue.clone(),invalid]}),
+        json!({"issues":[issue]}),
+    ]);
+    let profile = automation_profile(&mut f, &address);
+    for delete in [false, true] {
+        let args = json!({"taskType":"continuity-check","profileId":profile,"payload":{"planId":plan,"draftId":target}});
+        let preview = f
+            .request(
+                "POST",
+                &format!("/api/projects/{project}/analysis/preview"),
+                args.clone(),
+            )
+            .unwrap();
+        assert!(preview["preview"]["note"]
+            .as_str()
+            .unwrap()
+            .contains("其他续写章节"));
+        let run = f
+            .request("POST", &format!("/api/projects/{project}/analysis"), args)
+            .unwrap()["runId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        wait_run(&mut f, &run, "done");
+        let issues = f
+            .request(
+                "GET",
+                &format!("/api/projects/{project}/issues"),
+                Value::Null,
+            )
+            .unwrap();
+        assert_eq!(
+            issues["issues"].as_array().unwrap().len(),
+            1,
+            "无逐字证据的问题不应保存"
+        );
+        let evidence = &issues["issues"][0]["evidence"];
+        assert_eq!(evidence.as_array().unwrap().len(), 2);
+        assert_eq!(evidence[1]["draftId"], prior);
+        assert_eq!(evidence[1]["startOffset"], 2, "emoji 定位须使用 UTF-16");
+        assert!(evidence
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["draftId"] != other));
+        if delete {
+            f.request(
+                "DELETE",
+                &format!("/api/projects/{project}/drafts/{prior}"),
+                Value::Null,
+            )
+            .unwrap();
+        } else {
+            f.request(
+                "PATCH",
+                &format!("/api/projects/{project}/drafts/{prior}"),
+                json!({"content":"😀玄铁令只能由掌门开启。补充内容。"}),
+            )
+            .unwrap();
+        }
+        assert!(f
+            .request(
+                "GET",
+                &format!("/api/projects/{project}/issues"),
+                Value::Null
+            )
+            .unwrap()["issues"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(f
+            .request(
+                "GET",
+                &format!("/api/projects/{project}/drafts/{target}"),
+                Value::Null
+            )
+            .unwrap()["draft"]["continuityCheckedAt"]
+            .is_null());
+    }
+    for request in server.join().unwrap() {
+        assert!(request.contains("玄铁令只能由掌门开启"));
+        assert!(!request.contains("其他方向秘密不能发送"));
+    }
+}
+
+#[test]
+fn editing_previous_draft_while_model_runs_rejects_stale_generation_and_checks() {
+    for task in ["draft", "continuity-check"] {
+        let mut f = Fixture::new();
+        let mut input = backup();
+        input["continuityIssues"] = json!([]);
+        input["memoryProposals"] = json!([]);
+        input["continuationPlans"] = json!([{"id":"p","direction":"玄铁令","outline":[{"index":1,"title":"前章","summary":"开启规则"},{"index":2,"title":"后章","summary":"继续调查"}]}]);
+        input["draftChapters"] = json!([{"id":"d1","planId":"p","index":1,"content":"只有掌门能开启玄铁令。"},{"id":"d2","planId":"p","index":2,"content":"后章原有正文。"}]);
+        let project = f.request("POST", "/api/projects/restore", input).unwrap()["project"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let rows = database::query(
+            &f.db,
+            "SELECT id,planId,\"index\" FROM DraftChapter WHERE projectId=? ORDER BY \"index\"",
+            &[json!(project)],
+        )
+        .unwrap();
+        let prior = rows[0]["id"].as_str().unwrap();
+        let target = rows[1]["id"].as_str().unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let response = if task == "draft" {
+            automation_draft("新正文")
+        } else {
+            json!({"issues":[]})
+        };
+        let (address, server) = automation_mock_with_hook(vec![response], move |_| {
+            ready_tx.send(()).unwrap();
+            release_rx
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+        });
+        let profile = automation_profile(&mut f, &address);
+        let run = f.request("POST", &format!("/api/projects/{project}/analysis"),json!({"taskType":task,"profileId":profile,"payload":{"planId":rows[0]["planId"],"outlineIndex":2,"draftId":target}})).unwrap()["runId"].as_str().unwrap().to_string();
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        f.request(
+            "PATCH",
+            &format!("/api/projects/{project}/drafts/{prior}"),
+            json!({"content":"作者修改了玄铁令的开启规则。"}),
+        )
+        .unwrap();
+        release_tx.send(()).unwrap();
+        let failed = wait_run(&mut f, &run, "failed");
+        assert!(failed["error"].as_str().unwrap().contains("修改"));
+        let saved = f
+            .request(
+                "GET",
+                &format!("/api/projects/{project}/drafts/{target}"),
+                Value::Null,
+            )
+            .unwrap();
+        assert_eq!(saved["draft"]["content"], "后章原有正文。");
+        assert!(saved["draft"]["continuityCheckedAt"].is_null());
+        assert!(server.join().unwrap()[0].contains("只有掌门能开启玄铁令"));
+    }
+}
+
+#[test]
+fn orphan_drafts_from_legacy_backups_remain_editable_and_deletable() {
+    let mut input = backup();
+    input["continuationPlans"] = json!([]);
+    let mut f = Fixture::new();
+    let project = f.request("POST", "/api/projects/restore", input).unwrap()["project"]["id"].as_str().unwrap().to_string();
+    let draft = database::query(&f.db, "SELECT id FROM DraftChapter WHERE projectId=?", &[json!(project)]).unwrap()[0]["id"].as_str().unwrap().to_string();
+    let result = f.request("PATCH", &format!("/api/projects/{project}/drafts/{draft}"), json!({"content":"旧草稿手工修改。"})).unwrap();
+    assert!(result["draft"]["continuityCheckedAt"].is_null());
+    assert!(f.request("GET", &format!("/api/projects/{project}/issues"), Value::Null).unwrap()["issues"].as_array().unwrap().is_empty());
+    f.request("DELETE", &format!("/api/projects/{project}/drafts/{draft}"), Value::Null).unwrap();
+    assert!(database::query(&f.db, "SELECT id FROM DraftChapter WHERE projectId=?", &[json!(project)]).unwrap().is_empty());
 }

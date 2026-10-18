@@ -219,10 +219,10 @@ fn task_note(task: &str) -> &str {
         }
         "direction" => "依据已确认记忆与最近原文，提出 3 个候选续写方向，供作者择一。",
         "outline" => "依据选定方向与已确认记忆，生成接下来若干章的章纲。",
-        "draft" => "依据已选定的方向和章纲逐章生成草稿，上一章结尾作为前情。",
-        "continuity-check" => "逐章核对草稿与记忆、原文是否自洽；重新检查会替换上一轮问题。",
+        "draft" => "依据已选定的方向和章纲逐章生成草稿，结合本方向此前正文的相关片段作为前情；正文须为 1800–3500 字，不含空白。",
+        "continuity-check" => "逐章核对草稿与记忆、原文及同方向其他续写章节是否自洽；相关片段将发送给模型，节选之外的内容不在检查范围内；重新检查会替换上一轮问题。",
         "draft-memory" => {
-            "从草稿提取新事实和变化，作者审阅后才写入记忆；重新提取会替换尚未处理的提案。"
+            "从草稿提取新事实和变化，同时参考本方向此前正文避免重复；相关片段将发送给模型。作者审阅后才写入记忆；重新提取会替换尚未处理的提案。"
         }
         _ => "逐章抽取：章节笔记、事件、人物（含认知）、设定、悬念与术语，每条附原文出处。",
     }
@@ -273,7 +273,7 @@ fn task_units(db: &Connection, project_id: &str, body: &Value, task: &str) -> Re
             return Ok(drafts.into_iter().map(|row|json!({
                 "id":format!("{prefix}-{}",row["id"].as_str().unwrap_or("")),
                 "rawTitle":format!("第 {} 章 · {}",row["index"],row["title"].as_str().unwrap_or("（无标题）")),
-                "content":row["content"]
+                "content":row["content"],"index":row["index"],"planId":row["planId"],"outlineItemJson":row["outlineItemJson"]
             })).collect());
         }
         if task == "draft" {
@@ -384,13 +384,50 @@ fn preview(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Resu
                 format!("【已选定的续写方向】\n{direction}"),
             )
         } else if matches!(task, "draft" | "continuity-check" | "draft-memory") {
-            (
-                ctx.total_chars
-                    + units[0]["content"]
+            let mut total = 0;
+            for unit in &units {
+                let plan_id = if let Some(plan) = unit["planId"].as_str() {
+                    plan.to_string()
+                } else {
+                    resolve_plan_id(db, project_id, &body["payload"])?
+                };
+                let plan = one(db, "SELECT direction,summary,outlineJson FROM ContinuationPlan WHERE id=? AND projectId=?", &[json!(plan_id),json!(project_id)])?;
+                let focus = format!("{}\n{}\n{}", plan, unit["outlineItemJson"], unit["content"]);
+                let context = context::build_for(
+                    db,
+                    project_id,
+                    if task == "draft-memory" { 1 } else { 3 },
+                    &focus,
+                )?;
+                let history = context::draft_history(
+                    db,
+                    project_id,
+                    &plan_id,
+                    unit["index"].as_i64().unwrap_or(1),
+                    task == "continuity-check",
+                    &focus,
+                )?;
+                total += context.total_chars
+                    + history.text.encode_utf16().count()
+                    + unit["content"]
                         .as_str()
                         .unwrap_or("")
                         .encode_utf16()
-                        .count(),
+                        .count()
+                    + plan.to_string().encode_utf16().count();
+                if task != "draft" {
+                    total += context
+                        .memories
+                        .iter()
+                        .map(|row| row.to_string().encode_utf16().count())
+                        .sum::<usize>();
+                } else {
+                    // 批量写作时后章会接收本轮新生成的前章正文。
+                    total += 16000usize.saturating_sub(history.text.encode_utf16().count());
+                }
+            }
+            (
+                total,
                 format!(
                     "{}\n{}",
                     units[0]["rawTitle"],
@@ -1268,20 +1305,30 @@ fn run_outline(
         return Err("这个方向已有草稿，不能直接重生成章纲。".into());
     }
     let automatic = payload["outlineMode"] == "auto";
-    if !automatic && payload.get("outlineCount").is_some_and(|value| !value.is_null() && value.as_u64().is_none()) {
+    if !automatic
+        && payload
+            .get("outlineCount")
+            .is_some_and(|value| !value.is_null() && value.as_u64().is_none())
+    {
         return Err("章纲目标数量应为整数。".into());
     }
     let count = payload["outlineCount"].as_u64().unwrap_or(5);
     if !(1..=30).contains(&count) {
         return Err("章纲目标数量无效。".into());
     }
-    let ctx = context::build(db, project_id, 2)?;
+    let focus = format!(
+        "{}\n{}\n{}",
+        plan["direction"], plan["summary"], plan["relatedThreadsJson"]
+    );
+    let ctx = context::build_for(db, project_id, 2, &focus)?;
     let direction = plan["direction"].as_str().unwrap_or("");
     let summary = plan["summary"].as_str().unwrap_or("");
     let system="你是一名小说结构师，负责为已选定方向排出接下来若干章的章纲。严格服务于方向，每章推进核心冲突；不得推翻既有事实。只排章纲，不写正文。若作者要求与既有事实存在明确冲突，返回 conflicts 并令 chapters 为空。";
     let length_instruction = if automatic {
         "请根据方向、故事记忆和本段剧情目标智能安排章数，通常 3–8 章，最多 30 章；以自然完成本段剧情为准，不凑章数，并在 notes 中说明篇幅安排理由".to_string()
-    } else { format!("请为这个方向排出接下来 {count} 章的章纲") };
+    } else {
+        format!("请为这个方向排出接下来 {count} 章的章纲")
+    };
     let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n方向说明中的剧情目标、人物选择、节奏和禁用情节均需遵循；未来构思不能当作已经发生的故事事实。\n\n{}，只返回 JSON：{{\"chapters\":[{{\"title\":string,\"summary\":string,\"beats\":[string],\"relatedThreads\":[string]}}],\"notes\":string,\"conflicts\":[string]}}。如有与既有事实明确冲突，请在 conflicts 逐条指出，并令 chapters 为空。",ctx.text,direction,summary,length_instruction);
     let (output, usage) = model::request_json(profile, system, &prompt, 8192, "outline")?;
     if one(
@@ -1373,33 +1420,23 @@ fn run_draft(
         .and_then(|items| items.iter().find(|item| item["index"] == index))
         .ok_or("章纲里没有这章。")?
         .clone();
-    let previous=query(db,"SELECT title,content FROM DraftChapter WHERE projectId=? AND planId=? AND \"index\"=? LIMIT 1",
-        &[json!(project_id),json!(plan_id),json!(index-1)])?.into_iter().next();
     let before=query(db,"SELECT id,version FROM DraftChapter WHERE projectId=? AND planId=? AND \"index\"=? LIMIT 1",
         &[json!(project_id),json!(plan_id),json!(index)])?.into_iter().next();
-    let ctx = context::build(db, project_id, 3)?;
+    let focus = format!("{}\n{}\n{}", plan["direction"], plan["summary"], item);
+    let ctx = context::build_for(db, project_id, 3, &focus)?;
+    let history = context::draft_history(db, project_id, &plan_id, index, false, &focus)?;
     let beats = max_strings(&item, "beats", 20)
         .into_iter()
         .map(|s| format!("- {s}"))
         .collect::<Vec<_>>()
         .join("\n");
     let related = max_strings(&item, "relatedThreads", 20).join("、");
-    let previous_text = previous
-        .as_ref()
-        .map(|row| {
-            let content = row["content"].as_str().unwrap_or("");
-            let chars = content.chars().collect::<Vec<_>>();
-            let tail = chars[chars.len().saturating_sub(1200)..]
-                .iter()
-                .collect::<String>();
-            format!(
-                "【前情：上一章《{}》的结尾】\n（略）{tail}",
-                row["title"].as_str().unwrap_or("上一章")
-            )
-        })
-        .unwrap_or_default();
+    let previous_text = format!(
+        "【本方向此前正文（按章序节选，未发生的章纲不是事实）】\n{}",
+        history.text
+    );
     let system="你是一名小说续写者，负责按既定章纲写出这一章的正文。严格承接已确认的故事事实，与前情保持连贯；只写本章，不提前写后章，不写总结或作者按；遵循方向说明中的目标、节奏和禁用情节。";
-    let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n【本章章纲（第 {} 章）】\n标题：{}\n走向：{}\n关键节拍：\n{}\n承接线索：{}\n{}\n请写出本章正文，只返回 JSON：{{\"title\":string,\"content\":string}}。content 为 1800–3500 字的自然段正文，不含元信息或 Markdown 标记。",
+    let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n【本章章纲（第 {} 章）】\n标题：{}\n走向：{}\n关键节拍：\n{}\n承接线索：{}\n{}\n请写出本章正文，只返回 JSON：{{\"title\":string,\"content\":string}}。content 为 1800–3500 字（不含空白）的自然段正文，不含元信息或 Markdown 标记。",
         ctx.text,plan["direction"].as_str().unwrap_or(""),plan["summary"].as_str().unwrap_or(""),
         index,item["title"].as_str().unwrap_or(""),item["summary"].as_str().unwrap_or(""),beats,related,previous_text);
     let (output, usage) = model::request_json(profile, system, &prompt, 8000, "draft")?;
@@ -1422,6 +1459,7 @@ fn run_draft(
         .map(str::trim)
         .filter(|s| s.encode_utf16().count() >= 50 && s.encode_utf16().count() <= 200000)
         .ok_or("模型草稿正文过短或过长。")?;
+    crate::model_schema::validate_draft(content)?;
     let tx = db.transaction().map_err(|e| e.to_string())?;
     let current=query(&tx,"SELECT id,version FROM DraftChapter WHERE projectId=? AND planId=? AND \"index\"=? LIMIT 1",
         &[json!(project_id),json!(plan_id),json!(index)])?.into_iter().next();
@@ -1430,6 +1468,11 @@ fn run_draft(
     {
         return Err("草稿已被其他操作修改，请重新生成。".into());
     }
+    let latest = context::draft_history(&tx, project_id, &plan_id, index, false, &focus)?;
+    if latest.drafts != history.drafts {
+        return Err("前文已修改，请重新生成。".into());
+    }
+    crate::continuation::invalidate_checks(&tx, project_id, &plan_id)?;
     let draft_id = if let Some(current) = current {
         let draft_id = current["id"].as_str().ok_or("草稿编号无效。")?.to_string();
         execute(&tx,"UPDATE DraftChapter SET title=?,content=?,outlineItemJson=?,version=version+1,memoryUpdateStatus='none',continuityCheckJson='{}',updatedAt=? WHERE id=?",
