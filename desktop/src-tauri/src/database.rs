@@ -39,6 +39,7 @@ pub fn open(directory: &Path) -> Result<Connection> {
     validate(&db)?;
     db.execute_batch(include_str!("automation.sql"))
         .map_err(|e| e.to_string())?;
+    crate::works::backfill(&db)?;
     Ok(db)
 }
 

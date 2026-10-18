@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ArrowLeft, Library, Settings } from "lucide-react";
+import { ArrowLeft, BookOpen, Library, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { projectReturnPath } from "@/lib/navigation";
 
@@ -10,6 +10,8 @@ export function NavLinks() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const inSettings = pathname === "/settings";
+  const native = typeof document !== "undefined" && document.documentElement.dataset.nativeDesktop === "true";
+  const inWorks = native && pathname.startsWith("/works");
   const query = searchParams.toString();
   const currentProject = projectReturnPath(`${pathname}${query ? `?${query}` : ""}`);
   const returnTo = inSettings ? projectReturnPath(searchParams.get("returnTo")) : null;
@@ -18,7 +20,8 @@ export function NavLinks() {
     ? `/settings?${new URLSearchParams({ returnTo: project })}`
     : "/settings";
   const items = [
-    { href: returnTo ?? "/", label: returnTo ? "返回项目" : "项目库", icon: returnTo ? ArrowLeft : Library, active: !inSettings, replace: Boolean(returnTo) },
+    { href: returnTo ?? "/", label: returnTo ? "返回项目" : "项目库", icon: returnTo ? ArrowLeft : Library, active: !inSettings && !inWorks, replace: Boolean(returnTo) },
+    ...(native ? [{ href: "/works", label: "作品库", icon: BookOpen, active: inWorks, replace: false }] : []),
     { href: settingsHref, label: "设置", icon: Settings, active: inSettings, replace: false },
   ];
   return (

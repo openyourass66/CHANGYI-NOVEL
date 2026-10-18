@@ -36,19 +36,17 @@ pub fn settings(db: &Connection, project: &str) -> Result<Value> {
         "SELECT id FROM NovelProject WHERE id=?",
         &[json!(project)],
     )?;
-    let row = query(
-        db,
-        "SELECT * FROM NativeAutomationSettings WHERE projectId=?",
-        &[json!(project)],
-    )?
-    .into_iter()
-    .next();
-    Ok(
-        json!({"autoAccept":row.as_ref().is_none_or(|r| r["autoAccept"] == 1),
-        "autoSynthesis":row.as_ref().is_none_or(|r| r["autoSynthesis"] == 1),
-        "sound":row.as_ref().is_none_or(|r| r["sound"] == 1)}),
-    )
+    global_settings(db)
 }
+pub fn global_settings(db: &Connection) -> Result<Value> {
+    let row = one(
+        db,
+        "SELECT autoAccept,autoSynthesis FROM NativeGlobalAutomation WHERE id=1",
+        &[],
+    )?;
+    Ok(json!({"autoAccept":row["autoAccept"]==1,"autoSynthesis":row["autoSynthesis"]==1}))
+}
+
 pub fn accept_run(db: &mut Connection, run: &str) -> Result<()> {
     for row in query(db,"SELECT id FROM MemoryProposal WHERE runId=? AND draftId IS NULL AND state='pending' ORDER BY createdAt,id", &[json!(run)])? {
         crate::proposals::accept(db,row["id"].as_str().ok_or("提案编号无效。")?)?;
@@ -67,10 +65,11 @@ pub fn route(
     body: &Value,
 ) -> Option<Result<Value>> {
     Some(match (method, parts) {
+        ("GET", ["api", "settings", "automation"]) => global_settings(db),
         ("GET", ["api", "projects", project, "automation"]) => settings(db, project),
-        ("PATCH", ["api", "projects", project, "automation"]) => (|| {
-            let mut value = settings(db, project)?;
-            for field in ["autoAccept", "autoSynthesis", "sound"] {
+        ("PATCH", ["api", "settings", "automation"]) => (|| {
+            let mut value = global_settings(db)?;
+            for field in ["autoAccept", "autoSynthesis"] {
                 if let Some(v) = body.get(field) {
                     if !v.is_boolean() {
                         return Err("配置必须为开关值。".into());
@@ -78,8 +77,14 @@ pub fn route(
                     value[field] = v.clone();
                 }
             }
-            execute(db,"INSERT INTO NativeAutomationSettings(projectId,autoAccept,autoSynthesis,sound) VALUES(?,?,?,?) ON CONFLICT(projectId) DO UPDATE SET autoAccept=excluded.autoAccept,autoSynthesis=excluded.autoSynthesis,sound=excluded.sound",
-                &[json!(project),value["autoAccept"].clone(),value["autoSynthesis"].clone(),value["sound"].clone()])?;
+            if body.get("sound").is_some() {
+                return Err("声音提醒使用固定规则，无需配置。".into());
+            }
+            execute(
+                db,
+                "UPDATE NativeGlobalAutomation SET autoAccept=?,autoSynthesis=? WHERE id=1",
+                &[value["autoAccept"].clone(), value["autoSynthesis"].clone()],
+            )?;
             Ok(value)
         })(),
         ("GET", ["api", "workflows"]) => list(db),
@@ -123,13 +128,13 @@ pub fn route(
     })
 }
 fn list(db: &Connection) -> Result<Value> {
-    let mut rows = query(db,"SELECT w.*,p.name AS projectName FROM NativeWorkflow w JOIN NovelProject p ON p.id=w.projectId ORDER BY w.createdAt DESC", &[])?;
+    let mut rows = query(db,"SELECT w.*,p.name AS projectName,k.id AS workId FROM NativeWorkflow w JOIN NovelProject p ON p.id=w.projectId LEFT JOIN NativeWork k ON k.workflowId=w.id AND k.deletedAt IS NULL ORDER BY w.createdAt DESC", &[])?;
     for row in &mut rows {
         let steps = decode(row, "stepsJson");
         row["steps"] = steps.clone();
         row["planId"] = decode(row, "configJson")["planId"].clone();
         row["currentTask"] = steps[row["step"].as_u64().unwrap_or(0) as usize]["taskType"].clone();
-        row["sound"] = settings(db, row["projectId"].as_str().unwrap_or(""))?["sound"].clone();
+        row["sound"] = json!(true);
         if row["status"] == "running" && !live(row["id"].as_str().unwrap_or("")) {
             row["status"] = json!("stalled");
         }
@@ -143,7 +148,7 @@ fn list(db: &Connection) -> Result<Value> {
     let standalone = query(db,"SELECT r.id,r.projectId,p.name AS projectName FROM AnalysisRun r JOIN NovelProject p ON p.id=r.projectId WHERE NOT EXISTS (SELECT 1 FROM NativeWorkflow w WHERE w.id=json_extract(r.inputRangeJson,'$.payload.workflowId')) AND NOT EXISTS (SELECT 1 FROM NativeTaskNotice n WHERE n.runId=r.id AND n.status=r.status) ORDER BY r.createdAt DESC LIMIT 30", &[])?;
     for row in standalone {
         let run = analysis::status(db, row["id"].as_str().ok_or("任务不存在。")?)?;
-        rows.push(json!({"id":format!("run-{}",row["id"].as_str().unwrap_or("")),"projectId":row["projectId"],"projectName":row["projectName"],"kind":"single","status":run["status"],"currentTask":run["taskType"],"run":run,"notified":0,"sound":settings(db,row["projectId"].as_str().unwrap_or(""))?["sound"]}));
+        rows.push(json!({"id":format!("run-{}",row["id"].as_str().unwrap_or("")),"projectId":row["projectId"],"projectName":row["projectName"],"kind":"single","status":run["status"],"currentTask":run["taskType"],"run":run,"notified":0,"sound":true}));
     }
     Ok(json!({"workflows":rows}))
 }
@@ -298,7 +303,25 @@ fn process(db: &mut Connection, root: &Path, workflow: &str) -> Result<()> {
         let steps = decode(&row, "stepsJson");
         let index = row["step"].as_u64().unwrap_or(0) as usize;
         let Some(step) = steps.as_array().and_then(|s| s.get(index)) else {
-            execute(db,"UPDATE NativeWorkflow SET status='done',updatedAt=? WHERE id=? AND status='running'", &[json!(now()),json!(workflow)])?;
+            let tx = db.transaction().map_err(|e| e.to_string())?;
+            let current = one(
+                &tx,
+                "SELECT * FROM NativeWorkflow WHERE id=?",
+                &[json!(workflow)],
+            )?;
+            if current["status"] != "running" {
+                return Ok(());
+            }
+            let finished = now();
+            if current["kind"] == "continue" {
+                crate::works::archive(&tx, &current, finished)?;
+            }
+            execute(
+                &tx,
+                "UPDATE NativeWorkflow SET status='done',updatedAt=? WHERE id=?",
+                &[json!(finished), json!(workflow)],
+            )?;
+            tx.commit().map_err(|e| e.to_string())?;
             return Ok(());
         };
         let run_id = if let Some(run) = row["runId"].as_str() {

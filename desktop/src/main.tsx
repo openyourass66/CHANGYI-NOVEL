@@ -23,6 +23,7 @@ import { NativeStorageSettings } from "./storage-settings";
 import "./styles.css";
 import { AutomationProvider, AutomationSettings, useAutoContinue, useWorkflows } from "./automation";
 import { Reader } from "./reader";
+import { WorksLibrary } from "./works";
 
 installBridge();
 if (isTauri()) document.documentElement.dataset.nativeDesktop = "true";
@@ -64,6 +65,11 @@ function Shell() {
     </div>
     <OperationPromptHost />
   </ThemeProvider>;
+}
+
+function WorksLibraryPage() {
+  const data = useLoaderData() as { works: import("./works").Work[] };
+  return <WorksLibrary key={data.works.map((work) => work.id).join(";")} />;
 }
 
 function Library() {
@@ -114,10 +120,10 @@ function Analysis() {
     description: "在已有记忆之上统合全书，产出概要、结局状态、未决线索与续写约束。",
     requirement: "memory",
   }];
-  return <><div className="mx-auto w-full max-w-7xl px-6 pt-6"><AutomationSettings projectId={data.project.id} /></div><AnalysisPanel key={`${data.project.id}:${data.run?.id}`} projectId={data.project.id} projectName={data.project.name}
+  return <AnalysisPanel key={`${data.project.id}:${data.run?.id}`} projectId={data.project.id} projectName={data.project.name}
     chapters={chapters} profiles={data.profiles} tasks={tasks} initialProposals={data.proposals}
     initialCounts={data.counts} initialRun={data.run} taskRuns={data.taskRuns}
-    totalMemory={data.totalMemory} hasMemory={data.totalMemory > 0} initialStage={data.run?.taskType ?? null} /></>;
+    totalMemory={data.totalMemory} hasMemory={data.totalMemory > 0} initialStage={data.run?.taskType ?? null} />;
 }
 
 type ContinuationData = Workspace & {
@@ -175,6 +181,7 @@ function Settings() {
         autoComplete="off" aria-label="工作区主密钥" placeholder="原 .env 中的 64 位十六进制主密钥" className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm" />
         <Button disabled={restoring || key.trim().length !== 64} onClick={() => void restoreKey()}>{restoring ? "验证中…" : "验证并恢复"}</Button></CardContent></Card>}
     <ProfileManager profiles={profiles.profiles} encryptionReady={profiles.encryptionReady} />
+    <AutomationSettings />
     <NativeStorageSettings/>
   </div>;
 }
@@ -237,6 +244,8 @@ const router = createHashRouter([{
   element: <Shell />, errorElement: <ErrorPage />, children: [
     { path: "/", loader: () => api("/api/projects"), element: <Library /> },
     { path: "/settings", loader: () => api("/api/model-profiles"), element: <Settings /> },
+    { path: "/works", loader: () => api("/api/works"), element: <WorksLibraryPage /> },
+    { path: "/works/:workId", loader: ({params}) => api(`/api/works/${params.workId}`), element: <Reader /> },
     { path: "/projects/:id", loader: workspaceLoader, element: <Chapters /> },
     { path: "/projects/:id/memory", loader: memoryLoader, element: <Memory /> },
     { path: "/projects/:id/analysis", loader: analysisLoader, element: <Analysis /> },

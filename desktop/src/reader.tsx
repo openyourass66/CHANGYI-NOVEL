@@ -8,31 +8,37 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "./bridge";
 import { useWorkflows } from "./automation";
+import { generationTime, type Work, type WorkChapter } from "./works";
 import type { ContinuationPlanView, DraftChapterView } from "@/lib/continuation-view";
 
 type Data = { project: { id: string; name: string }; plans: ContinuationPlanView[] };
 type Preferences = { size: number; line: number; width: number; theme: string };
 function stored<T>(key: string, fallback: T): T { try { return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback; } catch { return fallback; } }
 export function Reader() {
-  const { project, plans } = useLoaderData() as Data;
+  const data = useLoaderData() as Data & { work?: Work };
+  const work = data.work;
+  const project = work ? { id: work.id, name: work.title } : data.project;
+  const plans = data.plans ?? [];
+
   const [search, setSearch] = useSearchParams();
-  const progressKey = `native-reader:${project.id}`;
+  const progressKey = `${work ? "native-work-reader" : "native-reader"}:${project.id}`;
   const saved = useMemo(() => stored(progressKey, { plan: "", chapter: "" }), [progressKey]);
-  const planId = search.get("plan") ?? (plans.some((p) => p.id === saved.plan) ? saved.plan : plans.find((p) => p.status === "active")?.id ?? plans[0]?.id ?? "");
+  const planId = work?.id ?? search.get("plan") ?? (plans.some((p) => p.id === saved.plan) ? saved.plan : plans.find((p) => p.status === "active")?.id ?? plans[0]?.id ?? "");
   useEffect(() => { setChapterId(saved.chapter); }, [project.id]);
-  const [drafts, setDrafts] = useState<DraftChapterView[]>([]);
+  const [drafts, setDrafts] = useState<WorkChapter[]>([]);
   const [chapterId, setChapterId] = useState(saved.chapter);
   const [preferences, setPreferences] = useState<Preferences>(() => stored("native-reader-preferences", { size: 20, line: 1.9, width: 760, theme: "system" }));
   const [error, setError] = useState(""); const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false); const [text, setText] = useState(""); const [title, setTitle] = useState(""); const [saving, setSaving] = useState(false);
   const viewport = useRef<HTMLDivElement>(null);
   const workflows = useWorkflows();
-  const running = workflows.some((w) => w.projectId === project.id && w.status === "running");
+  const running = !work && workflows.some((w) => w.projectId === project.id && w.status === "running");
   const index = Math.max(0, drafts.findIndex((d) => d.id === chapterId));
   const chapter = drafts[index];
   const positionKey = `${progressKey}:${planId}:${chapter?.id ?? ""}`;
   useEffect(() => { localStorage.setItem("native-reader-preferences", JSON.stringify(preferences)); }, [preferences]);
   useEffect(() => {
+    if (work) { setDrafts(work.chapters); setLoading(false); setEditing(false); return; }
     if (!planId) return;
     let active = true; let timer: ReturnType<typeof setTimeout>;
     setLoading(true); setDrafts([]); setEditing(false);
@@ -42,7 +48,7 @@ export function Reader() {
       finally { if (active) { setLoading(false); if (running) timer = setTimeout(() => void load(), 2500); } }
     }
     void load(); return () => { active = false; clearTimeout(timer); };
-  }, [project.id, planId, running]);
+  }, [project.id, planId, running, work]);
   useEffect(() => {
     if (!chapter) return;
     localStorage.setItem(progressKey, JSON.stringify({ plan: planId, chapter: chapter.id }));
@@ -60,10 +66,10 @@ export function Reader() {
     catch (e) { setError(String(e)); }
   }
   return <div className="mx-auto w-full max-w-7xl space-y-5 p-6">
-    <header className="flex flex-wrap items-center justify-between gap-4"><div><h1 className="flex items-center gap-2 text-2xl font-semibold"><BookOpen className="size-6" />{project.name}</h1><p className="mt-1 text-sm text-muted-foreground">续写阅读 · 阅读位置自动保存</p></div><ProjectNav projectId={project.id} /></header>
+    <header className="flex flex-wrap items-center justify-between gap-4"><div><h1 className="flex items-center gap-2 text-2xl font-semibold"><BookOpen className="size-6" />{project.name}</h1><p className="mt-1 text-sm text-muted-foreground">{work ? `生成时间：${generationTime(work.generatedAt)}` : "续写阅读 · 阅读位置自动保存"}</p></div>{work ? <Button asChild variant="outline"><Link to="/works">返回作品库</Link></Button> : <ProjectNav projectId={project.id} />}</header>
     <div className="reader-layout" data-reading-theme={preferences.theme}>
       <aside className="reader-directory space-y-4 border-r p-4">
-        <label className="block space-y-2 text-sm font-medium">续写方向<select className="reader-select w-full" value={planId} onChange={(e) => { setSearch({plan:e.target.value}); setChapterId(""); }}><option value="" disabled>选择续写方向</option>{plans.map((p) => <option value={p.id} key={p.id}>{p.direction}</option>)}</select></label>
+        {work ? <div className="space-y-2"><h2 className="text-sm font-semibold">{work.direction}</h2><p className="text-xs opacity-70">来源：{work.sourceProjectName}</p></div> : <label className="block space-y-2 text-sm font-medium">续写方向<select className="reader-select w-full" value={planId} onChange={(e) => { setSearch({plan:e.target.value}); setChapterId(""); }}><option value="" disabled>选择续写方向</option>{plans.map((p) => <option value={p.id} key={p.id}>{p.direction}</option>)}</select></label>}
         <h2 className="text-sm font-medium">目录 · {drafts.length} 章{running ? " · 正在生成" : ""}</h2>
         <nav aria-label="续写章节目录" className="space-y-1">{drafts.map((d) => <button key={d.id} aria-current={d.id === chapter?.id ? "page" : undefined} className="reader-chapter w-full rounded-md px-3 py-3 text-left text-sm" onClick={() => choose(d.id)}>第 {d.index} 章 · {d.title || "无标题"}</button>)}</nav>
         <Button variant="outline" disabled={!drafts.length} onClick={() => void exportText()}>导出全文</Button>
@@ -82,7 +88,7 @@ export function Reader() {
             <h2 className="mb-8 text-2xl font-semibold">{chapter.title || "无标题"}</h2>
             {editing ? <div className="space-y-4"><label className="block text-sm">章节标题<Input value={title} onChange={(e) => setTitle(e.target.value)} /></label><label className="block text-sm">章节正文<Textarea className="mt-2 min-h-96 text-base" value={text} onChange={(e) => setText(e.target.value)} /></label><div className="flex gap-3"><Button disabled={saving || !text.trim()} onClick={() => void save()}>{saving ? "保存中…" : "保存修改"}</Button><Button variant="outline" disabled={saving} onClick={() => setEditing(false)}>取消编辑</Button></div></div> : <div className="reader-prose">{chapter.content.split(/\n+/).filter(Boolean).map((paragraph,i) => <p key={i}>{paragraph}</p>)}</div>}
             <footer className="mt-12 flex flex-wrap items-center justify-between gap-3 border-t pt-6 text-sm"><Button variant="ghost" disabled={index === 0 || editing} onClick={() => choose(drafts[index-1].id)}><ChevronLeft className="size-4" />上一章</Button><span>{index+1} / {drafts.length}</span><Button variant="ghost" disabled={index >= drafts.length-1 || editing} onClick={() => choose(drafts[index+1].id)}>下一章<ChevronRight className="size-4" /></Button></footer>
-            <div className="mt-6 flex justify-center gap-3"><Button variant="outline" disabled={running || editing} onClick={() => { setText(chapter.content); setTitle(chapter.title ?? ""); setEditing(true); }}>编辑本章</Button><Button variant="ghost" asChild><Link to={`/projects/${project.id}/continuation`}>查看检查问题</Link></Button></div>
+            {!work && <div className="mt-6 flex justify-center gap-3"><Button variant="outline" disabled={running || editing} onClick={() => { setText(chapter.content); setTitle(chapter.title ?? ""); setEditing(true); }}>编辑本章</Button><Button variant="ghost" asChild><Link to={`/projects/${project.id}/continuation`}>查看检查问题</Link></Button></div>}
           </article>}
         </div>
       </section>

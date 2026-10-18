@@ -30,3 +30,5 @@ html[data-native-desktop] .native-window-controls { display: flex; }
 .reader-layout[data-reading-theme="sepia"] { background: #f3ebd8; color: #413b2d; }
 .reader-layout[data-reading-theme="dark"] { background: #202320; color: #dcded7; }
 @media (max-width: 800px) { .reader-layout { grid-template-columns: 1fr; } .reader-directory { max-height: 220px; border-right: 0; border-bottom: 1px solid var(--border); } }
+
+.work-cover { min-height: 205px; padding: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 13%, var(--card)), color-mix(in srgb, var(--accent) 85%, var(--card))); color: var(--foreground); border-bottom: 1px solid var(--border); }

@@ -390,7 +390,7 @@ fn chapter_analysis_calls_local_model_and_creates_reviewable_proposal() {
     let project = f.create();
     f.request(
         "PATCH",
-        &format!("/api/projects/{project}/automation"),
+        "/api/settings/automation",
         json!({"autoAccept":false,"autoSynthesis":false}),
     )
     .unwrap();
@@ -500,7 +500,7 @@ fn book_synthesis_requires_memory_and_creates_inferred_proposals() {
     let project = f.create();
     f.request(
         "PATCH",
-        &format!("/api/projects/{project}/automation"),
+        "/api/settings/automation",
         json!({"autoAccept":false,"autoSynthesis":false}),
     )
     .unwrap();
@@ -1604,12 +1604,9 @@ fn automatic_understanding_accepts_memory_then_synthesizes_with_one_overall_noti
     let p = f.create();
     f.import(&p, "他回到故乡。");
     let settings = f
-        .request("GET", &format!("/api/projects/{p}/automation"), Value::Null)
+        .request("GET", "/api/settings/automation", Value::Null)
         .unwrap();
-    assert_eq!(
-        settings,
-        json!({"autoAccept":true,"autoSynthesis":true,"sound":true})
-    );
+    assert_eq!(settings, json!({"autoAccept":true,"autoSynthesis":true}));
     let profile = automation_profile(&mut f, &address);
     let started = f
         .request(
@@ -1721,6 +1718,9 @@ fn automatic_continuation_retries_only_missing_work_and_keeps_draft_memory_pendi
         .len(),
         1
     );
+    let archived = f.request("GET", "/api/works", Value::Null).unwrap();
+    assert_eq!(archived["works"].as_array().unwrap().len(), 1);
+    assert_eq!(archived["works"][0]["chapterCount"], 2);
     assert_eq!(server.join().unwrap().len(), 9);
 }
 
@@ -1770,7 +1770,7 @@ fn automatic_acceptance_protects_author_edits_and_does_not_accept_older_proposal
     let chapter = f.chapters(&p)[0]["id"].as_str().unwrap().to_string();
     f.request(
         "PATCH",
-        &format!("/api/projects/{p}/automation"),
+        "/api/settings/automation",
         json!({"autoSynthesis":false}),
     )
     .unwrap();
@@ -1809,4 +1809,143 @@ fn automatic_acceptance_protects_author_edits_and_does_not_accept_older_proposal
         "作者保留内容"
     );
     server.join().unwrap();
+}
+
+fn seed_finished_work(f: &mut Fixture) -> (String, String, String) {
+    let p = f.create();
+    f.import(&p, "原项目内容。");
+    let plan = f
+        .request(
+            "POST",
+            &format!("/api/projects/{p}/plans"),
+            json!({"direction":"归乡","summary":"主角归乡"}),
+        )
+        .unwrap()["plan"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let draft = database::id();
+    let workflow = database::id();
+    database::execute(&f.db,"INSERT INTO DraftChapter(id,projectId,planId,\"index\",title,content,createdAt,updatedAt) VALUES(?,?,?,1,'归乡','已完成作品的独立正文',?,?)",&[json!(draft),json!(p),json!(plan),json!(database::now()),json!(database::now())]).unwrap();
+    database::execute(&f.db,"INSERT INTO NativeWorkflow(id,projectId,kind,status,stepsJson,configJson,createdAt,updatedAt) VALUES(?,?,'continue','done','[]',?,1720000000000,1720000001000)",&[json!(workflow),json!(p),json!(json!({"planId":plan}).to_string())]).unwrap();
+    (p, draft, workflow)
+}
+
+#[test]
+fn completed_works_are_independent_snapshots_with_generation_time() {
+    let mut f = Fixture::new();
+    let (p, draft, workflow) = seed_finished_work(&mut f);
+    changyi_desktop::works::backfill(&f.db).unwrap();
+    let works = f.request("GET", "/api/works", Value::Null).unwrap();
+    assert_eq!(works["works"].as_array().unwrap().len(), 1);
+    let id = works["works"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(works["works"][0]["chapterCount"], 1);
+    assert_eq!(works["works"][0]["generatedAt"], "2024-07-03T09:46:41.000Z");
+    f.request(
+        "PATCH",
+        &format!("/api/projects/{p}/drafts/{draft}"),
+        json!({"content":"后来修改的草稿"}),
+    )
+    .unwrap();
+    let original = f
+        .request("GET", &format!("/api/works/{id}"), Value::Null)
+        .unwrap();
+    assert_eq!(
+        original["work"]["chapters"][0]["content"],
+        "已完成作品的独立正文"
+    );
+    changyi_desktop::works::backfill(&f.db).unwrap();
+    assert_eq!(
+        database::query(
+            &f.db,
+            "SELECT id FROM NativeWork WHERE workflowId=?",
+            &[json!(workflow)]
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+    f.request("DELETE", &format!("/api/projects/{p}"), Value::Null)
+        .unwrap();
+    let kept = f
+        .request("GET", &format!("/api/works/{id}"), Value::Null)
+        .unwrap();
+    assert!(kept["work"]["sourceProjectId"].is_null());
+    assert_eq!(kept["work"]["sourceProjectName"], "测试小说");
+    assert_eq!(
+        kept["work"]["chapters"][0]["content"],
+        original["work"]["chapters"][0]["content"]
+    );
+    let reopened = database::open(f.dir.path()).unwrap();
+    assert_eq!(
+        database::query(
+            &reopened,
+            "SELECT id FROM NativeWorkChapter WHERE workId=?",
+            &[json!(id)]
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn deleted_work_does_not_reappear_during_migration_and_keeps_source_draft() {
+    let mut f = Fixture::new();
+    let (p, draft, _) = seed_finished_work(&mut f);
+    changyi_desktop::works::backfill(&f.db).unwrap();
+    let works = f.request("GET", "/api/works", Value::Null).unwrap();
+    let id = works["works"][0]["id"].as_str().unwrap();
+    f.request("DELETE", &format!("/api/works/{id}"), Value::Null)
+        .unwrap();
+    changyi_desktop::works::backfill(&f.db).unwrap();
+    drop(database::open(f.dir.path()).unwrap());
+    assert_eq!(
+        f.request("GET", "/api/works", Value::Null).unwrap()["works"],
+        json!([])
+    );
+    assert!(f
+        .request("GET", &format!("/api/works/{id}"), Value::Null)
+        .is_err());
+    assert_eq!(
+        f.request(
+            "GET",
+            &format!("/api/projects/{p}/drafts/{draft}"),
+            Value::Null
+        )
+        .unwrap()["draft"]["content"],
+        "已完成作品的独立正文"
+    );
+}
+
+#[test]
+fn automation_settings_are_global_and_migrate_existing_disabled_preferences() {
+    let mut f = Fixture::new();
+    let p = f.create();
+    let q = f.create();
+    f.request(
+        "PATCH",
+        "/api/settings/automation",
+        json!({"autoAccept":false,"autoSynthesis":false}),
+    )
+    .unwrap();
+    assert_eq!(
+        changyi_desktop::automation::settings(&f.db, &p).unwrap(),
+        changyi_desktop::automation::settings(&f.db, &q).unwrap()
+    );
+    assert_eq!(
+        changyi_desktop::automation::settings(&f.db, &p).unwrap()["autoAccept"],
+        false
+    );
+    assert!(f
+        .request("PATCH", "/api/settings/automation", json!({"sound":false}))
+        .is_err());
+    f.db.execute("DROP TABLE NativeGlobalAutomation", [])
+        .unwrap();
+    database::execute(&f.db,"INSERT INTO NativeAutomationSettings(projectId,autoAccept,autoSynthesis,sound) VALUES(?,0,1,0)",&[json!(p)]).unwrap();
+    let db = database::open(f.dir.path()).unwrap();
+    assert_eq!(
+        changyi_desktop::automation::global_settings(&db).unwrap(),
+        json!({"autoAccept":false,"autoSynthesis":true})
+    );
 }

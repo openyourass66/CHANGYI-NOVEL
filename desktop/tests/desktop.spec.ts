@@ -178,10 +178,15 @@ test("analysis calls a local model and shows a proposal for review", async ({ pa
       });
       if (!response.ok) throw new Error(await response.text());
     }, `http://127.0.0.1:${address.port}/v1`);
-    await page.getByRole("link", { name: "理解分析" }).click();
-    await expect(page.getByRole("button", { name: "开始逐章抽取" })).toBeVisible();
+    await page.getByRole("link", { name: "设置", exact: true }).click();
     await page.getByLabel("自动全部采纳分析记忆").uncheck();
     await page.getByLabel("分析后自动统合全书").uncheck();
+    await expect(page.getByText("整项完成或需要选择时播放提醒", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "试听提醒" })).toHaveCount(0);
+    await page.getByRole("link", { name: "返回项目", exact: true }).click();
+    await page.getByRole("link", { name: "理解分析", exact: true }).click();
+    await expect(page.getByText("自动化配置", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "开始逐章抽取" })).toBeVisible();
     await page.getByRole("button", { name: "开始逐章抽取" }).click();
     await expect(page.getByText("主角回到故乡。", { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/第 1 章：回到故乡/)).toBeVisible();
@@ -346,5 +351,18 @@ test("automatic continuation survives navigation, reminds once, and opens a read
     await page.reload();
     await expect(page.getByRole("heading", { name: "归来", exact: true })).toBeVisible();
     expect(await page.evaluate(() => (window as unknown as { reminderTones: number }).reminderTones)).toBe(0);
+    await page.getByRole("link", { name: "作品库", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "作品库", exact: true })).toBeVisible();
+    await expect(page.locator("article")).toHaveCount(1);
+    await expect(page.getByText("生成时间：", { exact: false })).toBeVisible();
+    await page.screenshot({ path: ".verify/works-library.png", fullPage: true });
+    await page.locator("article").getByRole("link", { name: "开始阅读", exact: true }).click();
+    await expect(page).toHaveURL(/#\/works\//);
+    await expect(page.getByRole("heading", { name: "出发", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "编辑本章", exact: true })).toHaveCount(0);
+    await page.getByLabel("阅读背景").selectOption("dark");
+    await page.screenshot({ path: ".verify/work-reader.png", fullPage: true });
+    await page.getByRole("link", { name: "返回作品库", exact: true }).click();
+    await expect(page.locator("article")).toHaveCount(1);
   } finally { server.close(); }
 });

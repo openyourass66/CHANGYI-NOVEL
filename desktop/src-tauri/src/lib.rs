@@ -13,6 +13,7 @@ pub mod proposals;
 mod restore;
 pub mod secrets;
 pub mod storage;
+pub mod works;
 
 #[cfg(feature = "desktop")]
 mod desktop {

@@ -24,3 +24,28 @@ CREATE TABLE IF NOT EXISTS NativeTaskNotice (
  status TEXT NOT NULL,
  PRIMARY KEY(runId,status)
 );
+CREATE TABLE IF NOT EXISTS NativeGlobalAutomation (
+ id INTEGER PRIMARY KEY CHECK(id=1),
+ autoAccept INTEGER NOT NULL DEFAULT 1,
+ autoSynthesis INTEGER NOT NULL DEFAULT 1
+);
+INSERT OR IGNORE INTO NativeGlobalAutomation(id,autoAccept,autoSynthesis)
+ SELECT 1,COALESCE(MIN(autoAccept),1),COALESCE(MIN(autoSynthesis),1) FROM NativeAutomationSettings;
+CREATE TABLE IF NOT EXISTS NativeWork (
+ id TEXT PRIMARY KEY,
+ workflowId TEXT NOT NULL UNIQUE,
+ title TEXT NOT NULL,
+ sourceProjectId TEXT REFERENCES NovelProject(id) ON DELETE SET NULL,
+ sourceProjectName TEXT NOT NULL,
+ direction TEXT NOT NULL,
+ generatedAt INTEGER NOT NULL,
+ deletedAt INTEGER
+);
+CREATE TABLE IF NOT EXISTS NativeWorkChapter (
+ id TEXT PRIMARY KEY,
+ workId TEXT NOT NULL REFERENCES NativeWork(id) ON DELETE CASCADE,
+ "index" INTEGER NOT NULL,
+ title TEXT,
+ content TEXT NOT NULL,
+ UNIQUE(workId,"index")
+);
