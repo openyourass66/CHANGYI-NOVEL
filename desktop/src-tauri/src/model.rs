@@ -14,6 +14,22 @@ pub struct Profile {
     pub api_key: Option<String>,
 }
 
+pub fn validate_local_endpoint(base_url: &str) -> Result<()> {
+    let url = url::Url::parse(base_url).map_err(|_| "服务地址格式无效。")?;
+    let local = match url.host() {
+        Some(url::Host::Domain(host)) => host == "localhost" || host.ends_with(".localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        Some(url::Host::Ipv6(ip)) => {
+            ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local()
+        }
+        None => false,
+    };
+    if !local {
+        return Err("本地端点只能使用本机或内网地址；远端服务请关闭「本地端点」。".into());
+    }
+    Ok(())
+}
+
 pub fn resolve(db: &Connection, root: &Path, id: &str) -> Result<Profile> {
     let row = one(db, "SELECT * FROM ModelProfile WHERE id=?", &[json!(id)])?;
     let provider = row["provider"]
@@ -35,7 +51,12 @@ pub fn resolve(db: &Connection, root: &Path, id: &str) -> Result<Profile> {
         .as_str()
         .map(|ciphertext| secrets::decrypt(&secrets::ensure_key(root, db)?, ciphertext))
         .transpose()?;
-    let is_local = row["isLocal"] == true || matches!(provider.as_str(), "ollama" | "lmstudio");
+    let is_local = row["isLocal"]
+        .as_bool()
+        .unwrap_or(matches!(provider.as_str(), "ollama" | "lmstudio"));
+    if is_local {
+        validate_local_endpoint(&base_url)?;
+    }
     if !is_local && api_key.is_none() {
         return Err("该供应商需要 API 密钥。".into());
     }
@@ -70,8 +91,10 @@ pub fn request_json(
     system: &str,
     prompt: &str,
     max_tokens: u32,
+    task: &str,
 ) -> Result<(Value, Value)> {
     let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|e| format!("无法初始化模型请求：{e}"))?;
@@ -89,12 +112,15 @@ pub fn request_json(
                 .json(&json!({"model":profile.model,"max_tokens":max_tokens,
                     "system":messages[0]["content"],"messages":messages[1..],"temperature":0.2}))
         } else {
+            let mut body = json!({"model":profile.model,"messages":messages,"temperature":0.2,
+                "max_tokens":max_tokens,"response_format":{"type":"json_object"}});
+            if last_error == "模型响应缺少内容。" {
+                body["thinking"] = json!({"type":"disabled"});
+                body["max_tokens"] = json!(max_tokens.max(8192));
+            }
             let request = client
                 .post(format!("{}/chat/completions", profile.base_url))
-                .json(
-                    &json!({"model":profile.model,"messages":messages,"temperature":0.2,
-                    "max_tokens":max_tokens,"response_format":{"type":"json_object"}}),
-                );
+                .json(&body);
             if let Some(api_key) = &profile.api_key {
                 request.bearer_auth(api_key)
             } else {
@@ -123,10 +149,32 @@ pub fn request_json(
         } else {
             data["choices"][0]["message"]["content"].as_str()
         };
-        let content = content
-            .filter(|value| !value.trim().is_empty())
-            .ok_or("模型响应缺少内容。")?;
-        match extract_json(content) {
+        let content = content.filter(|value| !value.trim().is_empty());
+        if content.is_none() {
+            let official_deepseek = url::Url::parse(&profile.base_url)
+                .ok()
+                .is_some_and(|url| url.host_str() == Some("api.deepseek.com"));
+            let reason = data["choices"][0]["finish_reason"].as_str().unwrap_or("");
+            if attempt == 0 && official_deepseek && !["content_filter", "aborted"].contains(&reason)
+            {
+                last_error = "模型响应缺少内容。".into();
+                messages.push(json!({"role":"user","content":"请直接输出非空 JSON 对象，以 { 开始、以 } 结束；不要解释。"}));
+                continue;
+            }
+            return Err(if reason == "length" {
+                "模型输出达到长度上限，未返回正文。请缩小任务范围。"
+            } else if reason == "content_filter" {
+                "模型未返回正文：内容被模型服务过滤。"
+            } else {
+                "模型响应缺少内容。"
+            }
+            .into());
+        }
+        let content = content.unwrap();
+        match extract_json(content).and_then(|parsed| {
+            crate::model_schema::validate(task, &parsed)?;
+            Ok(parsed)
+        }) {
             Ok(parsed) => {
                 let usage = if profile.provider == "anthropic" {
                     json!({"promptTokens":data["usage"]["input_tokens"],"completionTokens":data["usage"]["output_tokens"],

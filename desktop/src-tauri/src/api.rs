@@ -27,11 +27,7 @@ pub fn request(db: &mut Connection, root: &Path, request: ApiRequest) -> ApiResp
     match dispatch(db, root, &request) {
         Ok(body) => ApiResponse { status: 200, body },
         Err(message) => ApiResponse {
-            status: if message.contains("尚未迁移") {
-                501
-            } else {
-                400
-            },
+            status: 400,
             body: json!({ "error": message }),
         },
     }
@@ -175,7 +171,7 @@ pub fn dispatch(db: &mut Connection, root: &Path, req: &ApiRequest) -> Result<Va
         ("GET", ["api", "projects", project_id, "export"]) => {
             export_project(db, project_id, &req.path)
         }
-        _ => Err("此功能尚未迁移，请使用正式版处理。".into()),
+        _ => Err("请求的操作不存在。".into()),
     }
 }
 
@@ -263,7 +259,7 @@ fn import_source(
 ) -> Result<Value> {
     project(db, project_id)?;
     if has_active_run(db, project_id)? {
-        return Err("项目仍有分析任务运行中，请先在正式版取消或等待任务结束。".into());
+        return Err("项目仍有分析任务运行中，请先取消或等待任务结束。".into());
     }
     let file_name = text(body, "fileName", 1, 255)?;
     let format = text(body, "format", 1, 20)?;

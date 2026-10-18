@@ -142,6 +142,11 @@ fn create(db: &mut Connection, root: &Path, body: &Value) -> Result<Value> {
     let model = field(body, "model", 1, 120)?;
     let url = base_url(&body["baseUrl"])?;
     let local = is_local(&provider, body["isLocal"].as_bool());
+    if local {
+        if let Some(url) = &url {
+            crate::model::validate_local_endpoint(url)?;
+        }
+    }
     let secret = body["apiKey"].as_str().unwrap_or("").trim();
     if secret.encode_utf16().count() > 400 {
         return Err("API 密钥过长。".into());
@@ -182,6 +187,11 @@ fn update(db: &mut Connection, root: &Path, profile_id: &str, body: &Value) -> R
         old["baseUrl"].as_str().map(str::to_string)
     };
     let local = is_local(&provider, body["isLocal"].as_bool());
+    if local {
+        if let Some(url) = &url {
+            crate::model::validate_local_endpoint(url)?;
+        }
+    }
     let secret = body["apiKey"].as_str().unwrap_or("").trim();
     if secret.encode_utf16().count() > 400 {
         return Err("API 密钥过长。".into());
@@ -266,7 +276,9 @@ fn test_connection(db: &Connection, root: &Path, profile_id: &str) -> Result<Val
         .as_str()
         .map(|value| secrets::decrypt(&key, value))
         .transpose()?;
-    let local = row["isLocal"] == true || matches!(provider, "ollama" | "lmstudio");
+    let local = row["isLocal"]
+        .as_bool()
+        .unwrap_or(matches!(provider, "ollama" | "lmstudio"));
     let base = row["baseUrl"]
         .as_str()
         .filter(|value| !value.is_empty())
@@ -276,10 +288,14 @@ fn test_connection(db: &Connection, root: &Path, profile_id: &str) -> Result<Val
             "anthropic" => "https://api.anthropic.com",
             _ => "https://api.openai.com/v1",
         });
+    if local {
+        crate::model::validate_local_endpoint(base)?;
+    }
     if !local && secret.is_none() {
         return Err("该供应商需要 API 密钥。".into());
     }
     let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|e| format!("无法初始化网络请求：{e}"))?;

@@ -50,6 +50,7 @@ pub fn build(db: &Connection, project_id: &str, last_n: usize) -> Result<Context
     let mut digest = Vec::new();
     let mut used = 0usize;
     let mut included = 0usize;
+    let mut exhausted = false;
     for (category, label) in CATEGORY_ORDER {
         let mut lines = Vec::new();
         for entry in memories.iter().filter(|row| row["category"] == *category) {
@@ -75,6 +76,7 @@ pub fn build(db: &Connection, project_id: &str, last_n: usize) -> Result<Context
                 .join(" ");
             let line = format!("- {title}（{status}）：{content}");
             if used + line.encode_utf16().count() + 1 > 12000 {
+                exhausted = true;
                 break;
             }
             used += line.encode_utf16().count() + 1;
@@ -84,7 +86,7 @@ pub fn build(db: &Connection, project_id: &str, last_n: usize) -> Result<Context
         if !lines.is_empty() {
             digest.push(format!("## {label}\n{}", lines.join("\n")));
         }
-        if included < memories.len() && used >= 12000 {
+        if exhausted {
             break;
         }
     }
@@ -94,26 +96,37 @@ pub fn build(db: &Connection, project_id: &str, last_n: usize) -> Result<Context
     } else {
         format!("【故事记忆】\n{memory_text}")
     });
-    let recent = chapters.iter().rev().take(last_n).collect::<Vec<_>>();
-    let recent = recent
-        .into_iter()
-        .rev()
-        .map(|row| {
-            let title = row["rawTitle"].as_str().unwrap_or("");
-            let content = row["content"].as_str().unwrap_or("");
-            let chars = content.chars().collect::<Vec<_>>();
-            let tail = if chars.len() > 8000 {
-                format!(
-                    "（前文略）{}",
-                    chars[chars.len() - 8000..].iter().collect::<String>()
-                )
-            } else {
-                content.to_string()
-            };
-            format!("### {title}\n{tail}")
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let mut recent_blocks = Vec::new();
+    let mut recent_used = 0usize;
+    for row in chapters.iter().rev().take(last_n) {
+        let header = format!("### {}\n", row["rawTitle"].as_str().unwrap_or(""));
+        let content = row["content"].as_str().unwrap_or("");
+        let whole = format!("{header}{content}");
+        let remaining = 8000usize.saturating_sub(recent_used);
+        if whole.encode_utf16().count() + 2 <= remaining {
+            recent_used += whole.encode_utf16().count() + 2;
+            recent_blocks.push(whole);
+            continue;
+        }
+        let tail_budget = remaining.saturating_sub(header.encode_utf16().count() + 20);
+        if tail_budget >= 600 {
+            let mut length = 0usize;
+            let mut start = content.len();
+            for (offset, ch) in content.char_indices().rev() {
+                if length + ch.len_utf16() > tail_budget {
+                    break;
+                }
+                length += ch.len_utf16();
+                start = offset;
+            }
+            recent_blocks.push(format!("{header}（前文略）{}", &content[start..]));
+        } else if recent_blocks.is_empty() {
+            recent_blocks.push(whole);
+        }
+        break;
+    }
+    recent_blocks.reverse();
+    let recent = recent_blocks.join("\n\n");
     if !recent.is_empty() {
         blocks.push(format!("【最近章节原文】\n{recent}"));
     }

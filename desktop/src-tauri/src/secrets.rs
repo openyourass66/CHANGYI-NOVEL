@@ -203,11 +203,13 @@ pub fn ensure_key(root: &Path, db: &Connection) -> Result<[u8; 32]> {
 pub fn restore_key(root: &Path, db: &Connection, hex_key: &str) -> Result<()> {
     let key = parse_key(hex_key)?;
     validate_key(db, &key)?;
-    if let Some(existing) = read_key(root)? {
-        if existing != key {
-            return Err("工作区已有不同主密钥，不能覆盖。".into());
+    if let Ok(Some(existing)) = read_key(root) {
+        if existing == key {
+            return Ok(());
         }
-        return Ok(());
+        if validate_key(db, &existing).is_ok() {
+            return Err("工作区已有不同且有效的主密钥，不能覆盖。".into());
+        }
     }
     write_key(root, &key)
 }

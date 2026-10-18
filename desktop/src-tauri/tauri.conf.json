@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "长忆预览版",
+  "productName": "长忆原生版",
   "mainBinaryName": "changyi",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0",
   "identifier": "com.changyi.novel.preview",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -11,16 +11,18 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{
-      "label": "main",
-      "title": "长忆",
-      "width": 1280,
-      "height": 860,
-      "minWidth": 860,
-      "minHeight": 600,
-      "decorations": false,
-      "dragDropEnabled": false
-    }],
+    "windows": [
+      {
+        "label": "main",
+        "title": "长忆",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 860,
+        "minHeight": 600,
+        "decorations": false,
+        "dragDropEnabled": false
+      }
+    ],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:"
     }
@@ -28,9 +30,19 @@
   "bundle": {
     "active": true,
     "useLocalToolsDir": true,
-    "targets": ["nsis"],
-    "icon": ["../../web/desktop-shell/app-icon-v2.ico", "../../web/desktop-shell/app-icon-v2.png"],
-    "windows": { "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true } },
-    "shortDescription": "长忆小说理解与续写工作台预览版"
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "../../web/desktop-shell/app-icon-v2.ico",
+      "../../web/desktop-shell/app-icon-v2.png"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    },
+    "shortDescription": "长忆小说理解与续写工作台"
   }
 }

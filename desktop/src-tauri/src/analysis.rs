@@ -16,6 +16,12 @@ static PROCESSING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 fn processing() -> &'static Mutex<HashSet<String>> {
     PROCESSING.get_or_init(|| Mutex::new(HashSet::new()))
 }
+pub fn is_processing(run_id: &str) -> bool {
+    processing()
+        .lock()
+        .map(|set| set.contains(run_id))
+        .unwrap_or(false)
+}
 
 pub fn route(
     db: &mut Connection,
@@ -49,7 +55,7 @@ fn latest(db: &Connection, project_id: &str) -> Result<Value> {
         &[json!(project_id)],
     )?;
     let recent=query(db,
-        "SELECT id,taskType FROM AnalysisRun WHERE projectId=? AND taskType IN ('chapter-extract','book-synthesis','direction','outline') ORDER BY createdAt DESC",
+        "SELECT id,taskType FROM AnalysisRun WHERE projectId=? AND taskType IN ('chapter-extract','book-synthesis','direction','outline','draft','continuity-check','draft-memory') ORDER BY createdAt DESC",
         &[json!(project_id)])?;
     let mut task_runs = serde_json::Map::new();
     let mut newest = None;
@@ -110,8 +116,18 @@ fn chapter_units(db: &Connection, project_id: &str, body: &Value) -> Result<Vec<
 
 fn task_type(body: &Value) -> Result<&str> {
     let task = body["taskType"].as_str().unwrap_or("chapter-extract");
-    if !["chapter-extract", "book-synthesis", "direction", "outline"].contains(&task) {
-        return Err("该分析任务尚未迁移。".into());
+    if ![
+        "chapter-extract",
+        "book-synthesis",
+        "direction",
+        "outline",
+        "draft",
+        "continuity-check",
+        "draft-memory",
+    ]
+    .contains(&task)
+    {
+        return Err("不支持的模型任务类型。".into());
     }
     Ok(task)
 }
@@ -121,11 +137,17 @@ fn task_label(task: &str) -> &str {
         "book-synthesis" => "全书统合",
         "direction" => "生成续写方向",
         "outline" => "生成章纲",
+        "draft" => "生成草稿",
+        "continuity-check" => "检查连续性",
+        "draft-memory" => "提取记忆变化",
         _ => "逐章抽取",
     }
 }
 fn unit_label(task: &str) -> &str {
-    if task == "chapter-extract" {
+    if matches!(
+        task,
+        "chapter-extract" | "draft" | "continuity-check" | "draft-memory"
+    ) {
         "章节"
     } else {
         "项"
@@ -138,6 +160,11 @@ fn task_note(task: &str) -> &str {
         }
         "direction" => "依据已确认记忆与最近原文，提出 3 个候选续写方向，供作者择一。",
         "outline" => "依据选定方向与已确认记忆，生成接下来若干章的章纲。",
+        "draft" => "依据已选定的方向和章纲逐章生成草稿，上一章结尾作为前情。",
+        "continuity-check" => "逐章核对草稿与记忆、原文是否自洽；重新检查会替换上一轮问题。",
+        "draft-memory" => {
+            "从草稿提取新事实和变化，作者审阅后才写入记忆；重新提取会替换尚未处理的提案。"
+        }
         _ => "逐章抽取：章节笔记、事件、人物（含认知）、设定、悬念与术语，每条附原文出处。",
     }
 }
@@ -159,6 +186,75 @@ fn task_units(db: &Connection, project_id: &str, body: &Value, task: &str) -> Re
         .is_empty()
         {
             return Err("还没有记忆条目可供参考，请先运行「逐章抽取」。".into());
+        }
+        if matches!(task, "continuity-check" | "draft-memory") {
+            let payload = &body["payload"];
+            let drafts = if let Some(draft_id) = payload["draftId"].as_str() {
+                vec![one(
+                    db,
+                    "SELECT * FROM DraftChapter WHERE id=? AND projectId=?",
+                    &[json!(draft_id), json!(project_id)],
+                )?]
+            } else {
+                let plan_id = resolve_plan_id(db, project_id, payload)?;
+                query(
+                    db,
+                    "SELECT * FROM DraftChapter WHERE projectId=? AND planId=? ORDER BY \"index\"",
+                    &[json!(project_id), json!(plan_id)],
+                )?
+            };
+            if drafts.is_empty() {
+                return Err("这个方向还没有草稿，请先运行「生成草稿」。".into());
+            }
+            let prefix = if task == "continuity-check" {
+                "check"
+            } else {
+                "memo"
+            };
+            return Ok(drafts.into_iter().map(|row|json!({
+                "id":format!("{prefix}-{}",row["id"].as_str().unwrap_or("")),
+                "rawTitle":format!("第 {} 章 · {}",row["index"],row["title"].as_str().unwrap_or("（无标题）")),
+                "content":row["content"]
+            })).collect());
+        }
+        if task == "draft" {
+            let plan_id = resolve_plan_id(db, project_id, &body["payload"])?;
+            let plan = one(
+                db,
+                "SELECT outlineJson FROM ContinuationPlan WHERE id=?",
+                &[json!(plan_id)],
+            )?;
+            let outline: Value = serde_json::from_str(plan["outlineJson"].as_str().unwrap_or("[]"))
+                .unwrap_or(json!([]));
+            let items = outline
+                .as_array()
+                .filter(|rows| !rows.is_empty())
+                .ok_or("这个方向还没有章纲，请先运行「生成章纲」。")?;
+            let selected = body["payload"]["outlineIndex"].as_u64();
+            let existing = query(
+                db,
+                "SELECT \"index\" FROM DraftChapter WHERE projectId=? AND planId=?",
+                &[json!(project_id), json!(plan_id)],
+            )?
+            .into_iter()
+            .filter_map(|row| row["index"].as_u64())
+            .collect::<HashSet<_>>();
+            let units=items.iter().enumerate().filter_map(|(i,item)|{
+                let index=item["index"].as_u64().unwrap_or((i+1) as u64);
+                if selected.is_some_and(|value|value!=index) || (selected.is_none() && existing.contains(&index)){return None;}
+                let title=item["title"].as_str().unwrap_or("");
+                Some(json!({"id":format!("draft-{index}"),"rawTitle":format!("第 {index} 章 · {title}"),
+                    "content":item["summary"],"index":index}))
+            }).collect::<Vec<_>>();
+            if units.is_empty() {
+                return Err(if selected.is_some() {
+                    "章纲里没有指定章节。"
+                } else {
+                    "章纲里的每一章都已经有草稿了。"
+                }
+                .into());
+            }
+            return Ok(units);
         }
         if task == "outline" {
             let plan_id = resolve_plan_id(db, project_id, &body["payload"])?;
@@ -205,7 +301,17 @@ fn preview(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Resu
     let profile = model::resolve(db, root, profile_id)?;
     let units = task_units(db, project_id, body, task)?;
     let (total, sample) = if task != "chapter-extract" {
-        let ctx = context::build(db, project_id, if task == "book-synthesis" { 1 } else { 2 })?;
+        let ctx = context::build(
+            db,
+            project_id,
+            if task == "book-synthesis" {
+                1
+            } else if task == "draft" {
+                3
+            } else {
+                2
+            },
+        )?;
         if task == "outline" {
             let plan_id = resolve_plan_id(db, project_id, &body["payload"])?;
             let plan = one(
@@ -217,6 +323,20 @@ fn preview(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Resu
             (
                 ctx.total_chars + direction.encode_utf16().count(),
                 format!("【已选定的续写方向】\n{direction}"),
+            )
+        } else if matches!(task, "draft" | "continuity-check" | "draft-memory") {
+            (
+                ctx.total_chars
+                    + units[0]["content"]
+                        .as_str()
+                        .unwrap_or("")
+                        .encode_utf16()
+                        .count(),
+                format!(
+                    "{}\n{}",
+                    units[0]["rawTitle"],
+                    units[0]["content"].as_str().unwrap_or("")
+                ),
             )
         } else {
             (ctx.total_chars, ctx.memory_sample)
@@ -293,7 +413,7 @@ fn start(db: &Connection, root: &Path, project_id: &str, body: &Value) -> Result
     let at = now();
     execute(db,"INSERT INTO AnalysisRun(id,projectId,taskType,inputRangeJson,modelProfileId,promptVersion,status,usageJson,progressJson,authorizedAt,createdAt,updatedAt) VALUES(?,?,?,?,?,?,'pending','{}',?,?,?,?)",
         &[json!(run_id),json!(project_id),json!(task),json!(stored.to_string()),json!(profile_id),
-            json!(if task=="outline"{"outline@2".to_string()}else{format!("{task}@1")}),json!(seed(units.len()).to_string()),
+            json!(if matches!(task,"outline"|"draft"){format!("{task}@2")}else{format!("{task}@1")}),json!(seed(units.len()).to_string()),
             if profile.is_local{Value::Null}else{json!(at)},json!(at),json!(at)])?;
     spawn(root.to_path_buf(), run_id.clone());
     Ok(json!({"runId":run_id}))
@@ -327,14 +447,48 @@ fn parse(value: &Value, field: &str) -> Value {
     serde_json::from_str(value[field].as_str().unwrap_or("{}")).unwrap_or(json!({}))
 }
 
+fn stored_input(run: &Value) -> Value {
+    let raw = parse(run, "inputRangeJson");
+    if raw["units"].is_array() {
+        return raw;
+    }
+    let ids = raw["chapterIds"].as_array().cloned().unwrap_or_default();
+    let units = ids
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|id| json!({"id":id,"label":id,"chapterId":id}))
+        .collect::<Vec<_>>();
+    json!({"payload":{"chapterIds":ids},"units":units})
+}
+
+fn progress_for(run: &Value, total: usize) -> Value {
+    let raw = parse(run, "progressJson");
+    let mut progress = seed(total);
+    if let Some(object) = raw.as_object() {
+        for (key, value) in object {
+            if progress.get(key).is_some() {
+                progress[key] = value.clone();
+            }
+        }
+    }
+    for field in ["doneIds", "failedIds", "errors"] {
+        if !progress[field].is_array() {
+            progress[field] = json!([]);
+        }
+    }
+    if !raw["produced"].is_number() && raw["proposals"].is_number() {
+        progress["produced"] = raw["proposals"].clone();
+    }
+    progress["unitsTotal"] = json!(total);
+    progress["batchTotal"] = json!(total.div_ceil(4));
+    progress
+}
+
 fn status(db: &Connection, run_id: &str) -> Result<Value> {
     let run = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)])?;
-    let stored = parse(&run, "inputRangeJson");
+    let stored = stored_input(&run);
     let units = stored["units"].as_array().cloned().unwrap_or_default();
-    let mut progress = parse(&run, "progressJson");
-    if !progress.is_object() {
-        progress = seed(units.len());
-    }
+    let mut progress = progress_for(&run, units.len());
     let done = progress["doneIds"].as_array().cloned().unwrap_or_default();
     let failed = progress["failedIds"]
         .as_array()
@@ -355,7 +509,11 @@ fn status(db: &Connection, run_id: &str) -> Result<Value> {
             .lock()
             .map(|set| set.contains(run_id))
             .unwrap_or(false);
-    let stalled = run["status"] == "running" && !live;
+    let stalled = (run["status"] == "running" || run["status"] == "pending")
+        && !processing()
+            .lock()
+            .map(|set| set.contains(run_id))
+            .unwrap_or(false);
     if !live {
         progress["currentUnitId"] = Value::Null;
         progress["currentLabel"] = Value::Null;
@@ -373,7 +531,7 @@ fn status(db: &Connection, run_id: &str) -> Result<Value> {
     }).collect::<Vec<_>>();
     Ok(
         json!({"id":run["id"],"projectId":run["projectId"],"taskType":run["taskType"],
-        "taskLabel":task_label(run["taskType"].as_str().unwrap_or("")),"unitLabel":if run["taskType"]=="chapter-extract"{"章"}else{"项"},"status":if stalled{"stalled"}else{run["status"].as_str().unwrap_or("failed")},
+        "taskLabel":task_label(run["taskType"].as_str().unwrap_or("")),"unitLabel":if run["taskType"]=="chapter-extract" || run["taskType"]=="draft"{"章"}else{"项"},"status":if stalled{"stalled"}else{run["status"].as_str().unwrap_or("failed")},
         "progress":progress,"usage":parse(&run,"usageJson"),"error":run["error"],
         "promptVersion":run["promptVersion"],"authorizedAt":run["authorizedAt"],
         "createdAt":run["createdAt"],"startedAt":run["startedAt"],"finishedAt":run["finishedAt"],
@@ -398,11 +556,19 @@ fn cancel(db: &Connection, run_id: &str) -> Result<Value> {
 
 fn resume(db: &Connection, root: &Path, run_id: &str) -> Result<Value> {
     let run = one(db, "SELECT * FROM AnalysisRun WHERE id=?", &[json!(run_id)])?;
+    if processing()
+        .lock()
+        .map(|set| set.contains(run_id))
+        .unwrap_or(false)
+    {
+        return status(db, run_id);
+    }
     if run["status"] == "done" || run["status"] == "canceled" {
         return status(db, run_id);
     }
     if run["status"] == "failed" {
-        let mut progress = parse(&run, "progressJson");
+        let stored = stored_input(&run);
+        let mut progress = progress_for(&run, stored["units"].as_array().map_or(0, Vec::len));
         let failed = progress["failedIds"]
             .as_array()
             .cloned()
@@ -440,12 +606,12 @@ fn process(db: &mut Connection, root: &Path, run_id: &str) -> Result<()> {
     }
     let profile_id = run["modelProfileId"].as_str().ok_or("模型档案不存在。")?;
     let profile = model::resolve(db, root, profile_id)?;
-    let stored = parse(&run, "inputRangeJson");
-    let units = stored["units"].as_array().cloned().unwrap_or_default();
-    let mut progress = parse(&run, "progressJson");
-    if !progress.is_object() {
-        progress = seed(units.len());
+    let stored = stored_input(&run);
+    if !profile.is_local && run["authorizedAt"].is_null() {
+        return Err("模型档案已改为远端服务，请重新发起任务并授权。".into());
     }
+    let units = stored["units"].as_array().cloned().unwrap_or_default();
+    let mut progress = progress_for(&run, units.len());
     execute(db,"UPDATE AnalysisRun SET status='running',startedAt=COALESCE(startedAt,?),error=NULL,updatedAt=? WHERE id=?",
         &[json!(now()),json!(now()),json!(run_id)])?;
     let mut usage = parse(&run, "usageJson");
@@ -496,6 +662,20 @@ fn process(db: &mut Connection, root: &Path, run_id: &str) -> Result<()> {
             "book-synthesis" => run_book(db, &profile, run_id, project_id),
             "direction" => run_direction(db, &profile, run_id, project_id),
             "outline" => run_outline(db, &profile, run_id, project_id, &stored["payload"]),
+            "draft" => run_draft(
+                db,
+                &profile,
+                run_id,
+                project_id,
+                unit_id,
+                &stored["payload"],
+            ),
+            "continuity-check" => {
+                crate::draft_tasks::run(db, &profile, run_id, project_id, unit_id, true)
+            }
+            "draft-memory" => {
+                crate::draft_tasks::run(db, &profile, run_id, project_id, unit_id, false)
+            }
             _ => Err("未知任务类型。".into()),
         };
         let state = one(
@@ -639,7 +819,7 @@ fn run_chapter(
     let system="你是一名严谨的小说文本分析师。唯一依据是章节原文。原文即正典，不得编造。每项结论必须附有逐字出现的 excerpt。人物认知区分已知、误信、未知。";
     let prompt=format!("章节标题：{}\n请只输出 JSON：{{\"chapterNote\":{{\"summary\":string,\"excerpt\":string}},\"events\":[{{\"description\":string,\"excerpt\":string}}],\"characters\":[{{\"name\":string,\"state\":string,\"knowledge\":[{{\"infoItem\":string,\"relation\":\"known\"|\"misbelieved\"|\"unknown\",\"excerpt\":string}}],\"excerpt\":string}}],\"settings\":[{{\"name\":string,\"detail\":string,\"excerpt\":string}}],\"threads\":[{{\"title\":string,\"detail\":string,\"state\":\"open\"|\"advanced\"|\"resolved\"|\"uncertain\",\"excerpt\":string}}],\"glossary\":[{{\"term\":string,\"definition\":string,\"excerpt\":string}}]}}\n章节原文：\n———\n{}\n———",
         chapter["rawTitle"].as_str().unwrap_or(""),chapter["content"].as_str().unwrap_or(""));
-    let (output, usage) = model::request_json(profile, system, &prompt, 4096)?;
+    let (output, usage) = model::request_json(profile, system, &prompt, 4096, "chapter-extract")?;
     if one(
         db,
         "SELECT status FROM AnalysisRun WHERE id=?",
@@ -689,8 +869,8 @@ fn run_chapter(
         run_id,
         chapter,
         "chapter-note",
-        &format!("ch:{}", chapter["id"]),
-        &format!("笔记：{}", chapter["rawTitle"]),
+        &format!("ch:{}", chapter["id"].as_str().unwrap_or("")),
+        &format!("笔记：{}", chapter["rawTitle"].as_str().unwrap_or("")),
         &note_content,
         "confirmed",
         &note_excerpts,
@@ -834,7 +1014,7 @@ fn run_book(
     }
     let system="你是一名严谨的小说编辑，负责在全书抽取结果之上做统合判断。唯一依据是章节标题、故事记忆与最近原文。不得引入之外的设定、人物或情节；严格区分明述与推断；结局状态只描述文本已到达的状态；拿不准的留作歧义。";
     let prompt=format!("{}\n\n请统合以上内容，只返回 JSON：{{\"overview\":string,\"endingState\":string,\"unresolved\":[{{\"title\":string,\"detail\":string}}],\"constraints\":[string],\"choices\":[string],\"ambiguities\":[string]}}\noverview 为全书概要；endingState 为当前结局状态；unresolved 为未决线索；constraints 为续写约束；choices 为开放选择；ambiguities 为实质歧义。本任务不产出原文出处，结果标记为推断，需经作者确认后才作数。",ctx.text);
-    let (output, usage) = model::request_json(profile, system, &prompt, 4096)?;
+    let (output, usage) = model::request_json(profile, system, &prompt, 4096, "book-synthesis")?;
     if one(
         db,
         "SELECT status FROM AnalysisRun WHERE id=?",
@@ -933,7 +1113,7 @@ fn run_direction(
     }
     let system="你是一名小说策划，负责在既有故事之上提出可选续写方向。每个方向必须扎根于记忆与最近原文，不得凭空引入新设定。方向之间应有显著差异；只提出方向，不写正文或章纲，不替作者拍板。";
     let prompt=format!("{}\n\n请提出 3 个差异明显的续写方向，只返回 JSON：{{\"candidates\":[{{\"direction\":string,\"summary\":string,\"relatedThreads\":[string]}}]}}。direction 用一句话命名；summary 说明核心冲突、人物选择与既有悬念关系；relatedThreads 使用已有记忆中的线索标题。",ctx.text);
-    let (output, usage) = model::request_json(profile, system, &prompt, 8192)?;
+    let (output, usage) = model::request_json(profile, system, &prompt, 8192, "direction")?;
     if one(
         db,
         "SELECT status FROM AnalysisRun WHERE id=?",
@@ -1014,7 +1194,7 @@ fn run_outline(
     let summary = plan["summary"].as_str().unwrap_or("");
     let system="你是一名小说结构师，负责为已选定方向排出接下来若干章的章纲。严格服务于方向，每章推进核心冲突；不得推翻既有事实。只排章纲，不写正文。若作者要求与既有事实存在明确冲突，返回 conflicts 并令 chapters 为空。";
     let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n方向说明中的剧情目标、人物选择、节奏和禁用情节均需遵循；未来构思不能当作已经发生的故事事实。\n\n请为这个方向排出接下来 {} 章的章纲，只返回 JSON：{{\"chapters\":[{{\"title\":string,\"summary\":string,\"beats\":[string],\"relatedThreads\":[string]}}],\"notes\":string,\"conflicts\":[string]}}。如有与既有事实明确冲突，请在 conflicts 逐条指出，并令 chapters 为空。",ctx.text,direction,summary,count);
-    let (output, usage) = model::request_json(profile, system, &prompt, 8192)?;
+    let (output, usage) = model::request_json(profile, system, &prompt, 8192, "outline")?;
     if one(
         db,
         "SELECT status FROM AnalysisRun WHERE id=?",
@@ -1076,4 +1256,113 @@ fn max_strings(item: &Value, field: &str, limit: usize) -> Vec<String> {
         .take(limit)
         .map(str::to_string)
         .collect()
+}
+
+fn run_draft(
+    db: &mut Connection,
+    profile: &model::Profile,
+    run_id: &str,
+    project_id: &str,
+    unit_id: &str,
+    payload: &Value,
+) -> Result<(usize, Value)> {
+    let index = unit_id
+        .strip_prefix("draft-")
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .ok_or("草稿任务编号无效。")?;
+    let plan_id = resolve_plan_id(db, project_id, payload)?;
+    let plan = one(
+        db,
+        "SELECT * FROM ContinuationPlan WHERE id=? AND projectId=?",
+        &[json!(plan_id), json!(project_id)],
+    )?;
+    let outline: Value =
+        serde_json::from_str(plan["outlineJson"].as_str().unwrap_or("[]")).unwrap_or(json!([]));
+    let item = outline
+        .as_array()
+        .and_then(|items| items.iter().find(|item| item["index"] == index))
+        .ok_or("章纲里没有这章。")?
+        .clone();
+    let previous=query(db,"SELECT title,content FROM DraftChapter WHERE projectId=? AND planId=? AND \"index\"=? LIMIT 1",
+        &[json!(project_id),json!(plan_id),json!(index-1)])?.into_iter().next();
+    let before=query(db,"SELECT id,version FROM DraftChapter WHERE projectId=? AND planId=? AND \"index\"=? LIMIT 1",
+        &[json!(project_id),json!(plan_id),json!(index)])?.into_iter().next();
+    let ctx = context::build(db, project_id, 3)?;
+    let beats = max_strings(&item, "beats", 20)
+        .into_iter()
+        .map(|s| format!("- {s}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let related = max_strings(&item, "relatedThreads", 20).join("、");
+    let previous_text = previous
+        .as_ref()
+        .map(|row| {
+            let content = row["content"].as_str().unwrap_or("");
+            let chars = content.chars().collect::<Vec<_>>();
+            let tail = chars[chars.len().saturating_sub(1200)..]
+                .iter()
+                .collect::<String>();
+            format!(
+                "【前情：上一章《{}》的结尾】\n（略）{tail}",
+                row["title"].as_str().unwrap_or("上一章")
+            )
+        })
+        .unwrap_or_default();
+    let system="你是一名小说续写者，负责按既定章纲写出这一章的正文。严格承接已确认的故事事实，与前情保持连贯；只写本章，不提前写后章，不写总结或作者按；遵循方向说明中的目标、节奏和禁用情节。";
+    let prompt=format!("{}\n\n【已选定的续写方向】\n{}\n【方向说明与作者要求】\n{}\n【本章章纲（第 {} 章）】\n标题：{}\n走向：{}\n关键节拍：\n{}\n承接线索：{}\n{}\n请写出本章正文，只返回 JSON：{{\"title\":string,\"content\":string}}。content 为 1800–3500 字的自然段正文，不含元信息或 Markdown 标记。",
+        ctx.text,plan["direction"].as_str().unwrap_or(""),plan["summary"].as_str().unwrap_or(""),
+        index,item["title"].as_str().unwrap_or(""),item["summary"].as_str().unwrap_or(""),beats,related,previous_text);
+    let (output, usage) = model::request_json(profile, system, &prompt, 8000, "draft")?;
+    if one(
+        db,
+        "SELECT status FROM AnalysisRun WHERE id=?",
+        &[json!(run_id)],
+    )?["status"]
+        == "canceled"
+    {
+        return Err("任务已取消。".into());
+    }
+    let title = output["title"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && s.encode_utf16().count() <= 120)
+        .ok_or("模型草稿标题无效。")?;
+    let content = output["content"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| s.encode_utf16().count() >= 50 && s.encode_utf16().count() <= 200000)
+        .ok_or("模型草稿正文过短或过长。")?;
+    let tx = db.transaction().map_err(|e| e.to_string())?;
+    let current=query(&tx,"SELECT id,version FROM DraftChapter WHERE projectId=? AND planId=? AND \"index\"=? LIMIT 1",
+        &[json!(project_id),json!(plan_id),json!(index)])?.into_iter().next();
+    if current.as_ref().map(|row| (&row["id"], &row["version"]))
+        != before.as_ref().map(|row| (&row["id"], &row["version"]))
+    {
+        return Err("草稿已被其他操作修改，请重新生成。".into());
+    }
+    let draft_id = if let Some(current) = current {
+        let draft_id = current["id"].as_str().ok_or("草稿编号无效。")?.to_string();
+        execute(&tx,"UPDATE DraftChapter SET title=?,content=?,outlineItemJson=?,version=version+1,memoryUpdateStatus='none',continuityCheckJson='{}',updatedAt=? WHERE id=?",
+            &[json!(title),json!(content),json!(item.to_string()),json!(now()),json!(draft_id)])?;
+        draft_id
+    } else {
+        let draft_id = id();
+        execute(&tx,"INSERT INTO DraftChapter(id,projectId,planId,\"index\",title,content,outlineItemJson,version,continuityCheckJson,memoryUpdateStatus,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,1,'{}','none',?,?)",
+            &[json!(draft_id),json!(project_id),json!(plan_id),json!(index),json!(title),json!(content),
+                json!(item.to_string()),json!(now()),json!(now())])?;
+        draft_id
+    };
+    execute(
+        &tx,
+        "DELETE FROM MemoryProposal WHERE draftId=? AND state='pending'",
+        &[json!(draft_id)],
+    )?;
+    execute(
+        &tx,
+        "DELETE FROM ContinuityIssue WHERE draftId=?",
+        &[json!(draft_id)],
+    )?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok((1, usage))
 }

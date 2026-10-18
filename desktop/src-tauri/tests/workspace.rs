@@ -60,6 +60,218 @@ fn import_body(content: &str) -> Value {
     json!({"fileName":"小说.txt","format":"txt","encoding":"UTF-8","bytes":STANDARD.encode(content.as_bytes()),"warnings":[],"chapters":[{"volumeNumber":null,"volumeTitle":null,"rawTitle":"第一章 开始","normalizedIndex":1,"content":content,"startOffset":0,"endOffset":content.encode_utf16().count(),"confidence":1.0,"flags":[]}]})
 }
 
+#[test]
+fn workspace_destination_copy_and_pointer_recovery_preserve_source() {
+    let mut f = Fixture::new();
+    let project = f.create();
+    f.import(&project, "独立副本的原文。");
+    let parent = tempfile::tempdir().unwrap();
+    let target = parent.path().join("workspace");
+    let copied = changyi_desktop::storage::prepare_destination(f.dir.path(), &target).unwrap();
+    assert_eq!(
+        database::query(&copied, "SELECT name FROM NovelProject", &[])
+            .unwrap()
+            .len(),
+        1
+    );
+    database::execute(&copied, "UPDATE NovelProject SET name='副本'", &[]).unwrap();
+    assert_eq!(
+        database::query(&f.db, "SELECT name FROM NovelProject", &[]).unwrap()[0]["name"],
+        "测试小说"
+    );
+    assert!(changyi_desktop::storage::copy_to(f.dir.path(), &f.dir.path().join("nested")).is_err());
+    let nonempty = parent.path().join("nonempty");
+    fs::create_dir(&nonempty).unwrap();
+    fs::write(nonempty.join("keep.txt"), "保留").unwrap();
+    assert!(changyi_desktop::storage::prepare_destination(f.dir.path(), &nonempty).is_err());
+    assert_eq!(
+        fs::read_to_string(nonempty.join("keep.txt")).unwrap(),
+        "保留"
+    );
+    let config = parent.path().join("settings");
+    changyi_desktop::storage::save_pointer(&config, f.dir.path()).unwrap();
+    changyi_desktop::storage::save_pointer(&config, &target).unwrap();
+    fs::write(config.join("workspace-path.json"), "{bad").unwrap();
+    assert_eq!(
+        changyi_desktop::storage::load_pointer(&config).unwrap(),
+        f.dir.path()
+    );
+}
+
+#[test]
+fn interrupted_run_resumes_and_canceled_request_does_not_write_proposals() {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let server = std::thread::spawn(move || {
+        for attempt in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut input = [0u8; 16384];
+            let _ = stream.read(&mut input);
+            if attempt == 1 {
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(8)).unwrap();
+            }
+            let output = json!({"chapterNote":{"summary":"主角归乡。","excerpt":"回到故乡"}});
+            let payload =
+                json!({"choices":[{"message":{"content":output.to_string()}}]}).to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+        }
+    });
+    let mut f = Fixture::new();
+    let project = f.create();
+    f.import(&project, "他回到故乡。");
+    let chapter = f.chapters(&project)[0]["id"].as_str().unwrap().to_string();
+    let profile = f
+        .request(
+            "POST",
+            "/api/model-profiles",
+            json!({"name":"恢复测试","provider":"ollama","model":"mock",
+        "baseUrl":format!("http://{address}/v1"),"isLocal":true}),
+        )
+        .unwrap()["profile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let interrupted = database::id();
+    f.db.execute("INSERT INTO AnalysisRun(id,projectId,taskType,inputRangeJson,modelProfileId,status,progressJson,usageJson,createdAt,updatedAt) VALUES(?,?,'chapter-extract',?,?,'running','{}','{}',?,?)",
+        rusqlite::params![interrupted,project,json!({"chapterIds":[chapter]}).to_string(),profile,database::now(),database::now()]).unwrap();
+    let view = f
+        .request("GET", &format!("/api/analysis/{interrupted}"), Value::Null)
+        .unwrap();
+    assert_eq!(view["run"]["status"], "stalled");
+    assert_eq!(view["run"]["progress"]["unitsTotal"], 1);
+    f.request(
+        "POST",
+        &format!("/api/analysis/{interrupted}/resume"),
+        Value::Null,
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let view = f
+            .request("GET", &format!("/api/analysis/{interrupted}"), Value::Null)
+            .unwrap();
+        if view["run"]["status"] == "done"
+            && !changyi_desktop::analysis::is_processing(&interrupted)
+        {
+            break;
+        }
+        assert!(
+            view["run"]["status"] != "failed",
+            "{}",
+            view["run"]["error"]
+        );
+        assert!(Instant::now() < deadline, "resume timed out");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let canceled = f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/analysis"),
+            json!({"taskType":"chapter-extract","profileId":profile}),
+        )
+        .unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    entered_rx.recv_timeout(Duration::from_secs(8)).unwrap();
+    f.request(
+        "POST",
+        &format!("/api/analysis/{canceled}/cancel"),
+        Value::Null,
+    )
+    .unwrap();
+    release_tx.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while changyi_desktop::analysis::is_processing(&canceled) {
+        assert!(Instant::now() < deadline, "cancel timed out");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    server.join().unwrap();
+    assert_eq!(
+        f.request("GET", &format!("/api/analysis/{canceled}"), Value::Null)
+            .unwrap()["run"]["status"],
+        "canceled"
+    );
+    assert!(database::query(
+        &f.db,
+        "SELECT id FROM MemoryProposal WHERE runId=?",
+        &[json!(canceled)]
+    )
+    .unwrap()
+    .is_empty());
+    changyi_desktop::storage::ensure_idle(&f.db).unwrap();
+}
+
+#[test]
+fn anthropic_protocol_and_local_endpoint_validation() {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        time::Duration,
+    };
+    assert!(changyi_desktop::model::validate_local_endpoint("https://example.com/v1").is_err());
+    assert!(changyi_desktop::model::validate_local_endpoint("http://[::1]:1234/v1").is_ok());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut input = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let count = stream.read(&mut chunk).unwrap();
+            assert!(count > 0);
+            input.extend_from_slice(&chunk[..count]);
+            if let Some(end) = input.windows(4).position(|value| value == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&input[..end]).to_lowercase();
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.strip_prefix("content-length:")
+                            .and_then(|value| value.trim().parse::<usize>().ok())
+                    })
+                    .unwrap();
+                if input.len() < end + 4 + length {
+                    continue;
+                }
+                assert!(headers.starts_with("post /v1/messages"));
+                assert!(headers.contains("anthropic-version: 2023-06-01"));
+                let body: Value =
+                    serde_json::from_slice(&input[end + 4..end + 4 + length]).unwrap();
+                assert!(body["system"].as_str().unwrap().contains("system"));
+                assert_eq!(body["messages"][0]["role"], "user");
+                break;
+            }
+        }
+        let output = json!({"title":"测试","content":"正文".repeat(40)}).to_string();
+        let payload=json!({"content":[{"type":"text","text":output}],"usage":{"input_tokens":7,"output_tokens":11}}).to_string();
+        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+    });
+    let profile = changyi_desktop::model::Profile {
+        provider: "anthropic".into(),
+        model: "mock".into(),
+        base_url: format!("http://{address}"),
+        is_local: true,
+        api_key: Some("synthetic-only".into()),
+    };
+    let (output, usage) =
+        changyi_desktop::model::request_json(&profile, "system", "prompt", 100, "draft").unwrap();
+    assert_eq!(output["title"], "测试");
+    assert_eq!(usage["totalTokens"], 18);
+    server.join().unwrap();
+}
+
 fn insert_proposal(
     f: &Fixture,
     project: &str,
@@ -157,16 +369,22 @@ fn chapter_analysis_calls_local_model_and_creates_reviewable_proposal() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(3)))
-            .unwrap();
-        let mut input = [0u8; 8192];
-        let count = stream.read(&mut input).unwrap();
-        assert!(String::from_utf8_lossy(&input[..count]).contains("POST /v1/chat/completions"));
-        let answer = json!({"chapterNote":{"summary":"主角回到故乡。","excerpt":"回到故乡"},"events":[],"characters":[],"settings":[],"threads":[],"glossary":[]});
-        let payload=json!({"choices":[{"message":{"content":answer.to_string()}}],"usage":{"prompt_tokens":20,"completion_tokens":30,"total_tokens":50}}).to_string();
-        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+        for attempt in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut input = [0u8; 8192];
+            let count = stream.read(&mut input).unwrap();
+            assert!(String::from_utf8_lossy(&input[..count]).contains("POST /v1/chat/completions"));
+            let answer = if attempt == 0 {
+                json!({"chapterNote":{"summary":"","excerpt":""}})
+            } else {
+                json!({"chapterNote":{"summary":"主角回到故乡。","excerpt":"回到故乡"},"events":[],"characters":[],"settings":[],"threads":[],"glossary":[]})
+            };
+            let payload=json!({"choices":[{"message":{"content":answer.to_string()}}],"usage":{"prompt_tokens":20,"completion_tokens":30,"total_tokens":50}}).to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+        }
     });
     let mut f = Fixture::new();
     let project = f.create();
@@ -561,6 +779,186 @@ fn direction_and_outline_tasks_write_reviewable_plans() {
     assert_eq!(saved["plan"]["outline"].as_array().unwrap().len(), 2);
     assert_eq!(saved["plan"]["version"], 2);
     server.join().unwrap();
+}
+
+#[test]
+fn draft_workflow_checks_continuity_extracts_memory_and_preserves_author_edits() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let outputs = [
+            json!({"title":"重返旧城","content":"他沿着熟悉的街道缓缓前行，旧城的石墙仍带着雨后的凉意。远处钟声响起，提醒他十年前的线索还没有结束。他停在城门前，决定先去寻找当年的目击者。"}),
+            json!({"issues":[{"category":"设定","severity":"warning","description":"城门状态需核对","draftExcerpts":["他停在城门前"],"memoryRefs":["M1"]}]}),
+            json!({"items":[{"category":"chapter-note","key":"","title":"","content":"主角寻找目击者"}]}),
+        ];
+        for output in outputs {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut input = [0u8; 16384];
+            let _ = stream.read(&mut input);
+            let content = output.to_string();
+            let payload =
+                json!({"choices":[{"message":{"content":content}}],"usage":{"total_tokens":80}})
+                    .to_string();
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",payload.len(),payload).unwrap();
+        }
+    });
+    let mut f = Fixture::new();
+    let project = f.create();
+    f.import(&project, "他回到旧城。");
+    f.request("POST",&format!("/api/projects/{project}/memory"),
+        json!({"category":"character","key":"hero","title":"主角","content":"已回旧城","status":"confirmed","citations":[]})).unwrap();
+    let plan_id = f
+        .request(
+            "POST",
+            &format!("/api/projects/{project}/plans"),
+            json!({"direction":"追查旧案","summary":"从旧城城门开始追查。","select":true}),
+        )
+        .unwrap()["plan"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    f.request("PATCH",&format!("/api/projects/{project}/plans/{plan_id}"),
+        json!({"outline":[{"title":"重返旧城","summary":"主角寻找目击者","beats":["到城门"],"relatedThreads":[]}]})).unwrap();
+    let profile = f
+        .request(
+            "POST",
+            "/api/model-profiles",
+            json!({"name":"Mock","provider":"ollama",
+        "model":"mock","baseUrl":format!("http://{address}/v1"),"isLocal":true}),
+        )
+        .unwrap()["profile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let args = json!({"taskType":"draft","profileId":profile,"payload":{"planId":plan_id}});
+    assert_eq!(
+        f.request(
+            "POST",
+            &format!("/api/projects/{project}/analysis/preview"),
+            args.clone()
+        )
+        .unwrap()["preview"]["unitCount"],
+        1
+    );
+    let run_id = f
+        .request("POST", &format!("/api/projects/{project}/analysis"), args)
+        .unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let run = f
+            .request("GET", &format!("/api/analysis/{run_id}"), Value::Null)
+            .unwrap()["run"]
+            .clone();
+        if run["status"] == "done" {
+            assert_eq!(run["progress"]["produced"], 1);
+            break;
+        }
+        if run["status"] == "failed" {
+            panic!("draft failed: {}", run["error"]);
+        }
+        assert!(Instant::now() < deadline, "draft timed out");
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    let drafts = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/plans/{plan_id}/drafts"),
+            Value::Null,
+        )
+        .unwrap();
+    let draft_id = drafts["drafts"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(drafts["drafts"][0]["outlineItem"]["index"], 1);
+    assert!(drafts["drafts"][0]["content"]
+        .as_str()
+        .unwrap()
+        .contains("目击者"));
+    for task in ["continuity-check", "draft-memory"] {
+        let run_id=f.request("POST",&format!("/api/projects/{project}/analysis"),
+            json!({"taskType":task,"profileId":profile,"payload":{"planId":plan_id,"draftId":draft_id}}))
+            .unwrap()["runId"].as_str().unwrap().to_string();
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            let run = f
+                .request("GET", &format!("/api/analysis/{run_id}"), Value::Null)
+                .unwrap()["run"]
+                .clone();
+            if run["status"] == "done" {
+                assert_eq!(run["progress"]["produced"], 1);
+                break;
+            }
+            if run["status"] == "failed" {
+                panic!("task failed: {}", run["error"]);
+            }
+            assert!(Instant::now() < deadline, "task timed out");
+            std::thread::sleep(Duration::from_millis(30));
+        }
+    }
+    server.join().unwrap();
+    let issues = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/issues?draftId={draft_id}"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(
+        issues["issues"][0]["evidence"][0]["excerpt"],
+        "他停在城门前"
+    );
+    assert!(issues["issues"][0]["evidence"][0]["startOffset"]
+        .as_u64()
+        .is_some());
+    assert_eq!(issues["issues"][0]["evidence"][1]["kind"], "memory");
+    let proposals = f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/proposals"),
+            Value::Null,
+        )
+        .unwrap();
+    assert_eq!(proposals["proposals"][0]["draftId"], draft_id);
+    let proposal_id = proposals["proposals"][0]["id"].as_str().unwrap();
+    f.request(
+        "POST",
+        &format!("/api/proposals/{proposal_id}/accept"),
+        Value::Null,
+    )
+    .unwrap();
+    assert_eq!(
+        f.request(
+            "GET",
+            &format!("/api/projects/{project}/drafts/{draft_id}"),
+            Value::Null
+        )
+        .unwrap()["draft"]["memoryUpdateStatus"],
+        "applied"
+    );
+    let edited = f
+        .request(
+            "PATCH",
+            &format!("/api/projects/{project}/drafts/{draft_id}"),
+            json!({"content":"作者改写了这一章的正文。"}),
+        )
+        .unwrap();
+    assert_eq!(edited["draft"]["version"], 2);
+    assert_eq!(edited["draft"]["content"], "作者改写了这一章的正文。");
+    assert!(edited["draft"]["continuityCheckedAt"].is_null());
+    assert!(f
+        .request(
+            "GET",
+            &format!("/api/projects/{project}/issues"),
+            Value::Null
+        )
+        .unwrap()["issues"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

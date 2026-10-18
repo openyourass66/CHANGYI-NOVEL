@@ -112,6 +112,7 @@ export function DraftEditor({
   onCheck,
   onProposeMemory,
   onIssueStatus,
+  onExportText,
 }: {
   draft: DraftChapterView;
   open: boolean;
@@ -126,6 +127,7 @@ export function DraftEditor({
   onCheck: () => void;
   onProposeMemory: () => void;
   onIssueStatus: (issueId: string, status: IssueStatus) => void;
+  onExportText?: (fileName: string, text: string) => Promise<void>;
 }) {
   const [mode, setMode] = useState<"read" | "edit">("read");
   const [title, setTitle] = useState(draft.title ?? "");
@@ -185,11 +187,16 @@ export function DraftEditor({
 
   function exportText() {
     const body = `第 ${draft.index} 章　${title || "（无标题）"}\n\n${content}\n`;
+    const fileName = `第${draft.index}章-${(title || "草稿").replace(/[\\/:*?"<>|]/g, "_")}.txt`;
+    if (onExportText) {
+      void onExportText(fileName, body).catch((error: unknown) => notify.error(error instanceof Error ? error.message : String(error)));
+      return;
+    }
     const blob = new Blob([body], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `第${draft.index}章-${(title || "草稿").replace(/[\\/:*?"<>|]/g, "_")}.txt`;
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
   }

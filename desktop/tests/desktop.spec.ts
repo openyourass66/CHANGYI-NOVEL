@@ -11,11 +11,14 @@ test.beforeEach(async ({ page }) => {
   const process = spawn(path.resolve("src-tauri/target/debug/examples/test-workspace.exe"), [directory], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   const pending: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
   const lines = createInterface({ input: process.stdout });
+  const exports: { fileName: string; text: string }[] = [];
+  await page.exposeFunction("readNativeExports", () => exports);
   lines.on("line", (line) => pending.shift()?.resolve(JSON.parse(line)));
   process.on("error", (error) => { for (const waiter of pending.splice(0)) waiter.reject(error); });
   process.on("exit", () => { for (const waiter of pending.splice(0)) waiter.reject(new Error("Native test workspace stopped")); });
-  await page.exposeFunction("nativeTestInvoke", (command: string, args: { request?: unknown }) => {
+  await page.exposeFunction("nativeTestInvoke", (command: string, args: { request?: unknown; fileName?: string; text?: string }) => {
     if (command === "get_storage") return { supported: true, dataDir: directory, needsSetup: false };
+    if (command === "save_text") { exports.push({ fileName: args.fileName!, text: args.text! }); return true; }
     if (command !== "api_request") return null;
     return new Promise((resolve, reject) => {
       pending.push({ resolve, reject });
@@ -212,4 +215,55 @@ test("continuation saves a manual direction and outline", async ({ page }) => {
   await page.getByRole("button", { name: "保存章纲" }).click();
   await page.getByRole("button", { name: "知道了" }).click();
   await expect(page.getByText("第 1 章 · 重返旧城")).toBeVisible();
+});
+
+test("draft generation, continuity evidence, and memory extraction use the native backend", async ({ page }) => {
+  const outputs = [
+    { title: "城门", content: "他沿着熟悉的街道缓缓前行，旧城的石墙仍带着雨后的凉意。远处钟声响起，提醒他十年前的线索还没有结束。他停在城门前，决定先去寻找当年的目击者。" },
+    { issues: [{ category: "设定", severity: "warning", description: "城门状态需要核对", draftExcerpts: ["他停在城门前"], memoryRefs: ["M1"] }] },
+    { items: [{ category: "chapter-note", key: "", title: "", content: "主角寻找目击者。" }] },
+  ];
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(outputs[requests++]) } }] }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Mock endpoint unavailable");
+    await createProject(page, "草稿验收小说");
+    await page.evaluate(async (baseUrl) => {
+      const id = location.hash.match(/projects\/([^/?]+)/)![1];
+      const post = async (path: string, body: unknown, method = "POST") => {
+        const response = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
+      };
+      await post(`/api/projects/${id}/memory`, { category: "character", title: "主角", key: "hero", content: "已回旧城", status: "confirmed", citations: [] });
+      const { plan } = await post(`/api/projects/${id}/plans`, { direction: "追查旧案", summary: "寻找目击者", select: true });
+      await post(`/api/projects/${id}/plans/${plan.id}`, { outline: [{ title: "城门", summary: "主角来到城门", beats: [], relatedThreads: [] }] }, "PATCH");
+      await post("/api/model-profiles", { name: "本地验收", provider: "ollama", model: "mock", baseUrl, isLocal: true });
+    }, `http://127.0.0.1:${address.port}/v1`);
+    await page.getByRole("link", { name: "续写规划" }).click();
+    await page.getByRole("button", { name: /^生成草稿/ }).first().click();
+    await page.getByRole("button", { name: "开始生成草稿" }).click();
+    await page.getByRole("button", { name: "知道了" }).click();
+    await expect(page.getByRole("button", { name: "阅读 / 编辑" })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "检查连续性", exact: true }).click();
+    await page.getByRole("button", { name: "知道了" }).click();
+    await expect(page.getByText("1 处待核对")).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "提取记忆变化", exact: true }).click();
+    await page.getByRole("button", { name: "知道了" }).click();
+    await expect(page.getByText("有记忆提案", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "阅读 / 编辑" }).click();
+    await expect(page.getByText("城门状态需要核对", { exact: true })).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "导出", exact: true }).click();
+    const saved = await page.evaluate(async () => (window as unknown as {
+      readNativeExports: () => Promise<{fileName:string;text:string}[]>
+    }).readNativeExports());
+    expect(saved[0].fileName).toBe("第1章-城门.txt");
+    expect(saved[0].text).toContain("他停在城门前");
+    expect(requests).toBe(3);
+  } finally { server.close(); }
 });

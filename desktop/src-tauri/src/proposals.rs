@@ -147,7 +147,7 @@ fn list(db: &Connection, project_id: &str, path: &str) -> Result<Value> {
     )
 }
 
-fn reconcile_draft(db: &Connection, draft_id: Option<&str>) -> Result<()> {
+pub fn reconcile_draft(db: &Connection, draft_id: Option<&str>) -> Result<()> {
     let Some(draft_id) = draft_id else {
         return Ok(());
     };

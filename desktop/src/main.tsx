@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { createHashRouter, RouterProvider, Outlet, useLoaderData, useRevalidator, useRouteError, Link } from "react-router-dom";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, Square, X, FolderOpen, LoaderCircle, KeyRound } from "lucide-react";
+import { Minus, Square, X, KeyRound } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ThemeProvider } from "@/components/theme-provider";
 import { OperationPromptHost, notify } from "@/components/operation-prompt";
@@ -12,7 +12,6 @@ import { ChapterWorkspace } from "@/components/projects/chapter-workspace";
 import { MemoryWorkbench } from "@/components/projects/memory-workbench";
 import { AnalysisPanel } from "@/components/projects/analysis-panel";
 import { ContinuationPanel } from "@/components/projects/continuation-panel";
-import { ProjectNav } from "@/components/projects/project-nav";
 import { ProfileManager } from "@/components/settings/profile-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,9 +19,11 @@ import { formatLabel } from "@/lib/domain";
 import type { ProjectSummary } from "@/lib/projects-view";
 import type { ChapterSummary } from "@/lib/chapters-view";
 import { api, installBridge } from "./bridge";
+import { NativeStorageSettings } from "./storage-settings";
 import "./styles.css";
 
 installBridge();
+let startupChecked = false;
 
 type Workspace = {
   project: { id: string; name: string; genre: string | null };
@@ -33,6 +34,12 @@ type Workspace = {
 function Shell() {
   useEffect(() => {
     if (!isTauri()) return;
+    if (!startupChecked) {
+      startupChecked = true;
+      void invoke<{startupError?:string|null}>("get_storage")
+        .then((info)=>{if(info.startupError)notify.warning(info.startupError);})
+        .catch((error:unknown)=>notify.error(String(error)));
+    }
     document.documentElement.dataset.nativeDesktop = "true";
     const drag = (event: MouseEvent) => {
       const target = event.target;
@@ -125,28 +132,24 @@ function Continuation() {
       description:"依据记忆与最近原文，提出 3 个差异明显的续写方向供你择一。",requirement:"memory"},
     {type:"outline",label:"生成章纲",scope:"project",unitLabel:"项",
       description:"为已选定的方向排出接下来若干章的章纲，写入该方向并递增其版本。",requirement:"plan"},
+    {type:"draft",label:"生成草稿",scope:"project",unitLabel:"项",
+      description:"按章纲逐章写出续写草稿，上一章会作为前情注入；草稿可人工编辑。",requirement:"outline"},
+    {type:"continuity-check",label:"检查连续性",scope:"project",unitLabel:"项",
+      description:"逐章核对续写草稿与既有记忆、原文是否自洽，产出待核对的问题与证据。",requirement:"drafts"},
+    {type:"draft-memory",label:"提取记忆变化",scope:"project",unitLabel:"项",
+      description:"从续写草稿里提取相对既有记忆的增量，产出待确认的记忆提案。",requirement:"drafts"},
   ];
   return <ContinuationPanel key={data.project.id} projectId={data.project.id} projectName={data.project.name}
     profiles={data.profiles} tasks={tasks} initialPlans={data.plans} initialRun={data.run}
-    taskRuns={data.taskRuns} hasMemory={data.hasMemory} initialStage={data.run?.taskType ?? null}/>;
+    taskRuns={data.taskRuns} hasMemory={data.hasMemory} initialStage={data.run?.taskType ?? null}
+    onExportText={async(fileName,text)=>{await invoke("save_text",{fileName,text});}}/>;
 }
 
 function Settings() {
   const profiles = useLoaderData() as { profiles: import("@/lib/ai/profiles").ProfileView[]; encryptionReady: boolean; keyError?: string };
-  const [directory, setDirectory] = useState("");
-  const [busy, setBusy] = useState(false);
   const [key, setKey] = useState("");
   const [restoring, setRestoring] = useState(false);
   const { revalidate } = useRevalidator();
-  useEffect(() => { void invoke<{ dataDir: string }>("get_storage").then((value) => setDirectory(value.dataDir)).catch((error: unknown) => notify.error(String(error))); }, []);
-  async function copy() {
-    setBusy(true);
-    try {
-      const result = await invoke<{ dataDir: string } | null>("copy_workspace");
-      if (result) { setDirectory(result.dataDir); await revalidate(); notify.success("工作区已复制并打开，原目录已保留。"); }
-    } catch (error) { notify.error(String(error)); }
-    finally { setBusy(false); }
-  }
   async function restoreKey() {
     setRestoring(true);
     try {
@@ -165,24 +168,14 @@ function Settings() {
         autoComplete="off" aria-label="工作区主密钥" placeholder="原 .env 中的 64 位十六进制主密钥" className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm" />
         <Button disabled={restoring || key.trim().length !== 64} onClick={() => void restoreKey()}>{restoring ? "验证中…" : "验证并恢复"}</Button></CardContent></Card>}
     <ProfileManager profiles={profiles.profiles} encryptionReady={profiles.encryptionReady} />
-    <Card><CardHeader><CardTitle className="text-base">数据保存位置</CardTitle><CardDescription>小说项目和原文保存在本机工作区中。</CardDescription></CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        <p className="break-all text-muted-foreground">当前目录：{directory || "正在读取…"}</p>
-        <p className="text-muted-foreground">从已有工作区复制项目、原文和配置到独立目录，保留原目录。</p>
-        <Button variant="outline" disabled={busy} onClick={() => void copy()}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <FolderOpen className="size-4" />}{busy ? "正在复制…" : "从已有工作区复制"}</Button>
-      </CardContent>
-    </Card>
+    <NativeStorageSettings/>
   </div>;
 }
 
-function MigrationPage() {
-  const data = useLoaderData() as Workspace;
+function NotFoundPage() {
   return <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 lg:px-6">
-    <ProjectNav projectId={data.project.id} />
-    <h1 className="text-2xl font-semibold tracking-tight">{data.project.name}</h1>
-    <Card><CardHeader><CardTitle className="text-base">此功能正在迁移</CardTitle><CardDescription>当前预览版已开放项目库和章节校对；记忆、理解分析和续写功能请继续使用正式版。</CardDescription></CardHeader>
-      <CardContent><Link className="text-primary underline" to={`/projects/${data.project.id}`}>返回章节校对</Link></CardContent>
-    </Card>
+    <h1 className="text-2xl font-semibold tracking-tight">页面不存在</h1>
+    <Link className="text-primary underline" to="/">返回项目库</Link>
   </div>;
 }
 
@@ -230,7 +223,7 @@ const continuationLoader=async ({params}:{params:Record<string,string|undefined>
     api<{counts:Record<string,number>}>(`/api/projects/${id}/memory`),
   ]);
   return {...workspace,profiles:profiles.profiles,plans:plans.plans,taskRuns:latest.taskRuns,
-    run:newestRun(latest.taskRuns,["direction","outline"]),
+    run:newestRun(latest.taskRuns,["direction","outline","draft","continuity-check","draft-memory"]),
     hasMemory:Object.values(memory.counts).some((count)=>count>0)};
 };
 const router = createHashRouter([{
@@ -241,7 +234,7 @@ const router = createHashRouter([{
     { path: "/projects/:id/memory", loader: memoryLoader, element: <Memory /> },
     { path: "/projects/:id/analysis", loader: analysisLoader, element: <Analysis /> },
     { path: "/projects/:id/continuation", loader: continuationLoader, element: <Continuation /> },
-    { path: "/projects/:id/:section", loader: workspaceLoader, element: <MigrationPage /> },
+    { path: "*", element: <NotFoundPage /> },
   ],
 }]);
 

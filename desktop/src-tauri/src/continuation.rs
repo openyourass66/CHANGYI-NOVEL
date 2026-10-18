@@ -396,6 +396,16 @@ fn update_draft(
     if changed {
         execute(
             &tx,
+            "UPDATE DraftChapter SET continuityCheckJson='{}' WHERE id=?",
+            &[json!(draft_id)],
+        )?;
+        execute(
+            &tx,
+            "DELETE FROM ContinuityIssue WHERE draftId=?",
+            &[json!(draft_id)],
+        )?;
+        execute(
+            &tx,
             "DELETE FROM MemoryProposal WHERE draftId=? AND state='pending'",
             &[json!(draft_id)],
         )?;

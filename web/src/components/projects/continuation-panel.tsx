@@ -91,6 +91,7 @@ export function ContinuationPanel({
   taskRuns: initialTaskRuns,
   hasMemory,
   initialStage,
+  onExportText,
 }: {
   projectId: string;
   projectName: string;
@@ -101,6 +102,7 @@ export function ContinuationPanel({
   taskRuns: Record<string, RunStatusView | null>;
   hasMemory: boolean;
   initialStage: string | null;
+  onExportText?: (fileName: string, text: string) => Promise<void>;
 }) {
   const [profileId, setProfileId] = useState(
     () => profiles.find((p) => p.isDefault)?.id ?? profiles[0]?.id ?? "",
@@ -1037,6 +1039,7 @@ export function ContinuationPanel({
           onCheck={() => void checkContinuity(editingDraft)}
           onProposeMemory={() => void proposeMemory(editingDraft)}
           onIssueStatus={(issueId, status) => void setIssueStatus(issueId, status)}
+          onExportText={onExportText}
         />
       )}
 
