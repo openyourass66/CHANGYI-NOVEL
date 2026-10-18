@@ -2,7 +2,7 @@
 
 长亿是一款本地小说写作工具，帮助你导入长篇原文、整理人物与故事设定、规划后续情节并生成续写草稿。原文、故事记忆和续写作品分别保存，方便校对、审阅和持续创作。
 
-[下载 Windows 安装包 · v0.2.8](https://github.com/openyourass66/CHANGYI-NOVEL/releases/download/v0.2.8/%E9%95%BF%E4%BA%BF_0.2.8_x64-setup.exe) · [版本说明与校验文件](https://github.com/openyourass66/CHANGYI-NOVEL/releases/tag/v0.2.8)
+[下载 Windows 安装包 · v0.2.8](https://github.com/openyourass66/CHANGYI-NOVEL/releases/download/v0.2.8/Changyi_0.2.8_x64.zip) · [版本说明与校验文件](https://github.com/openyourass66/CHANGYI-NOVEL/releases/tag/v0.2.8)
 
 ## 功能
 
@@ -17,7 +17,7 @@
 
 ## 安装与开始使用
 
-1. 下载并运行 Windows x64 安装包。应用使用系统 WebView2，缺失时安装程序会提示下载。
+1. 下载并解压 Windows x64 安装包，运行 `长亿_0.2.8_x64-setup.exe`。应用使用系统 WebView2，缺失时安装程序会提示下载。
 2. 打开“设置”，确认数据保存位置并添加模型档案，可先测试连接。
 3. 创建项目并导入小说，检查章节识别结果。
 4. 在“理解分析”中积累故事记忆，再到“续写规划”确定方向并开始续写。
