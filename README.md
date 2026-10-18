@@ -1,8 +1,8 @@
-# 长忆 · 小说理解与续写工作台
+# 长亿 · 小说理解与续写工作台
 
-长忆是一款本地小说写作工具，帮助你导入长篇原文、整理人物与故事设定、规划后续情节并生成续写草稿。原文、故事记忆和续写作品分别保存，方便校对、审阅和持续创作。
+长亿是一款本地小说写作工具，帮助你导入长篇原文、整理人物与故事设定、规划后续情节并生成续写草稿。原文、故事记忆和续写作品分别保存，方便校对、审阅和持续创作。
 
-[下载 Windows 安装包 · v0.2.7](https://github.com/openyourass66/CHANGYI-NOVEL/releases/download/v0.2.7/Changyi-Setup-0.2.7-x64.exe) · [版本说明与校验文件](https://github.com/openyourass66/CHANGYI-NOVEL/releases/tag/v0.2.7)
+[下载 Windows 安装包 · v0.2.8](https://github.com/openyourass66/CHANGYI-NOVEL/releases/download/v0.2.8/%E9%95%BF%E4%BA%BF_0.2.8_x64-setup.exe) · [版本说明与校验文件](https://github.com/openyourass66/CHANGYI-NOVEL/releases/tag/v0.2.8)
 
 ## 功能
 
@@ -33,7 +33,7 @@
 - **单项目备份**：导出项目 JSON，可恢复为新项目；不包含独立作品库、模型档案、全局设置与自动流程。
 - **阅读设置**：阅读位置和样式保存在当前设备中，需要另外保留设备数据。
 
-API 密钥在本机加密保存，不进入项目导出。长忆面向单用户本机使用，不提供账号和云端同步。
+API 密钥在本机加密保存，不进入项目导出。长亿面向单用户本机使用，不提供账号和云端同步。
 
 ## 源码开发
 
