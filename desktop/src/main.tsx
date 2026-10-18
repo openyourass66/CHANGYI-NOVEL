@@ -151,7 +151,7 @@ function Continuation() {
     {type:"draft-memory",label:"提取记忆变化",scope:"project",unitLabel:"项",
       description:"从续写草稿里提取相对既有记忆的增量，产出待确认的记忆提案。",requirement:"drafts"},
   ];
-  return <><ContinuationPanel key={`${data.project.id}:${data.run?.id}`} projectId={data.project.id} projectName={data.project.name}
+  return <><ContinuationPanel key={data.project.id} projectId={data.project.id} projectName={data.project.name}
     profiles={data.profiles} tasks={tasks} initialPlans={data.plans} initialRun={data.run}
     taskRuns={data.taskRuns} hasMemory={data.hasMemory} initialStage={data.run?.taskType ?? null}
     onAutoContinue={automatic.request} automationActive={active}

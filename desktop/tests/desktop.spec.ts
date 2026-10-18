@@ -213,6 +213,9 @@ test("continuation saves a manual direction and outline", async ({ page }) => {
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await page.getByRole("button", { name: "知道了" }).click();
   await expect(page.getByText("追查旧案", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "编辑章纲" })).toHaveCount(0);
+  await page.getByRole("button", { name: /^生成章纲/ }).first().click();
+  await expect(page.getByLabel("续写方向结果")).toHaveCount(0);
   await page.getByRole("button", { name: "编辑章纲" }).click();
   await page.getByRole("button", { name: "添加一章" }).click();
   await page.getByLabel("第 1 章标题").fill("重返旧城");
@@ -254,12 +257,32 @@ test("draft generation, continuity evidence, and memory extraction use the nativ
     await page.getByRole("button", { name: /^生成草稿/ }).first().click();
     await page.getByRole("button", { name: "开始生成草稿" }).click();
     await expect(page.getByRole("button", { name: "阅读 / 编辑" })).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: "检查连续性", exact: true }).click();
-    await expect(page.getByText("1 处待核对")).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("button", { name: "提取记忆变化", exact: true }).click();
-    await expect(page.getByText("有记忆提案", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByLabel("续写方向结果")).toHaveCount(0);
+    await expect(page.getByLabel("章纲结果")).toHaveCount(0);
+    await page.getByRole("button", { name: /^检查连续性/ }).first().click();
+    await expect(page.getByLabel("草稿结果")).toHaveCount(0);
+    await page.getByRole("button", { name: "开始检查连续性", exact: true }).click();
+    await expect(page.getByText("城门状态需要核对", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("blockquote")).toContainText("他停在城门前");
+    await page.getByRole("button", { name: "标为已解决" }).click();
+    await expect(page.getByLabel("连续性检查结果").getByText("已解决", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^提取记忆变化/ }).first().click();
+    await expect(page.getByLabel("连续性检查结果")).toHaveCount(0);
+    await page.getByRole("button", { name: "开始提取记忆变化", exact: true }).click();
+    await expect(page.getByText("主角寻找目击者。", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "采纳", exact: true }).click();
+    await page.getByRole("button", { name: "已采纳（1）", exact: true }).click();
+    await expect(page.getByText("主角寻找目击者。", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^生成草稿/ }).first().click();
+    await expect(page.getByLabel("记忆变化结果")).toHaveCount(0);
     await page.getByRole("button", { name: "阅读 / 编辑" }).click();
-    await expect(page.getByText("城门状态需要核对", { exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog").getByText("连续性待核对", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("dialog").getByText("记忆增量", { exact: true })).toHaveCount(0);
+    await page.getByRole("dialog").getByRole("button", { name: "编辑", exact: true }).click();
+    await page.getByLabel("正文", { exact: true }).fill(outputs[0].content + "\n他在城门旁发现了新的路标。");
+    await page.getByRole("dialog").getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("dialog")).toContainText("他在城门旁发现了新的路标。");
+    await expect(page.getByRole("dialog")).toContainText("v2");
     await page.getByRole("dialog").getByRole("button", { name: "导出", exact: true }).click();
     const saved = await page.evaluate(async () => (window as unknown as {
       readNativeExports: () => Promise<{fileName:string;text:string}[]>
@@ -270,6 +293,49 @@ test("draft generation, continuity evidence, and memory extraction use the nativ
   } finally { server.close(); }
 });
 
+
+test("continuation steps isolate results by stage and selected direction", async ({ page }) => {
+  await page.goto("/");
+  const projectId = await page.evaluate(async () => {
+    const outline = (title: string) => [{ index: 1, title, summary: `${title}的章纲内容`, beats: [], relatedThreads: [] }];
+    const response = await fetch("/api/projects/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      app: "novel-continuation", exportVersion: 2, project: { name: "步骤隔离验收" },
+      continuationPlans: [{ id: "a", direction: "甲方向", status: "active", outline: outline("甲章") }, { id: "b", direction: "乙方向", outline: outline("乙章") }],
+      draftChapters: [{ id: "da", planId: "a", index: 1, title: "甲章", content: "甲方向的草稿正文。" }, { id: "db", planId: "b", index: 1, title: "乙章", content: "乙方向的草稿正文。" }],
+      continuityIssues: [{ draftId: "da", description: "甲方向独有问题", evidence: [{ kind: "draft", draftId: "da", excerpt: "甲证据" }] }, { draftId: "db", description: "乙方向独有问题", evidence: [] }],
+      memoryProposals: [{ draftId: "da", content: "甲方向的记忆变化" }, { draftId: "db", content: "乙方向的记忆变化" }, { content: "原文分析提案应当隐藏" }],
+    }) });
+    if (!response.ok) throw new Error(await response.text());
+    return (await response.json()).project.id as string;
+  });
+  await page.goto(`/#/projects/${projectId}/continuation`);
+  await expect(page.getByLabel("续写方向结果")).toBeVisible();
+  await expect(page.getByText("甲章的章纲内容", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /^生成章纲/ }).first().click();
+  await expect(page.getByText("甲章的章纲内容", { exact: true })).toBeVisible();
+  await expect(page.getByText("乙章的章纲内容", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /^生成草稿/ }).first().click();
+  await expect(page.getByText("甲方向的草稿正文。", { exact: true })).toBeVisible();
+  await expect(page.getByText("甲章的章纲内容", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /^检查连续性/ }).first().click();
+  await expect(page.getByText("甲方向独有问题", { exact: true })).toBeVisible();
+  await expect(page.getByText("甲证据", { exact: true })).toBeVisible();
+  await expect(page.getByText("乙方向独有问题", { exact: true })).toHaveCount(0);
+  await page.getByLabel("目标方向", { exact: true }).click();
+  await page.getByRole("option", { name: /乙方向/ }).click();
+  await expect(page.getByText("乙方向独有问题", { exact: true })).toBeVisible();
+  await expect(page.getByText("甲方向独有问题", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /^提取记忆变化/ }).first().click();
+  await expect(page.getByText("乙方向的记忆变化", { exact: true })).toBeVisible();
+  await expect(page.getByText("甲方向的记忆变化", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("原文分析提案应当隐藏", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "忽略", exact: true }).click();
+  await page.getByRole("button", { name: "已忽略（1）", exact: true }).click();
+  await expect(page.getByText("乙方向的记忆变化", { exact: true })).toBeVisible();
+  const pending = await page.evaluate(async (id) => (await (await fetch(`/api/projects/${id}/proposals`)).json()).proposals.filter((proposal: { state: string }) => proposal.state === "pending"), projectId);
+  expect(pending).toHaveLength(2);
+  await page.screenshot({ path: ".verify/continuation-memory-step.png", fullPage: true });
+});
 
 test("automatic continuation survives navigation, reminds once, and opens a reader with saved progress", async ({ page }) => {
   await page.addInitScript(() => {

@@ -13,8 +13,6 @@ import {
   Plus,
   RotateCcw,
   Save,
-  ScanSearch,
-  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -42,23 +40,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { MEMORY_UPDATE_LABEL, MEMORY_UPDATE_TONE, PLAN_STATUS_LABEL, PLAN_STATUS_TONE } from "@/lib/continuation-view";
+import { PLAN_STATUS_LABEL, PLAN_STATUS_TONE } from "@/lib/continuation-view";
 import type {
-  ContinuityIssueView,
   ContinuationPlanView,
   DraftChapterView,
   OutlineItem,
 } from "@/lib/continuation-view";
-import { cn } from "@/lib/utils";
 import type { ProfileView } from "@/lib/ai/profiles";
 import type { RunStatusView } from "@/lib/ai/runner";
 import type { TaskSummary } from "@/lib/ai/tasks/registry";
-import type { IssueStatus } from "@/lib/domain";
 import { toneClass } from "@/lib/domain";
 import { REQUIREMENT_HINT, requirementMet } from "@/lib/ai/requirements";
 import { stageMetaOf, stageStatusOf } from "@/lib/ai/progress-view";
 import { ProjectNav } from "@/components/projects/project-nav";
 import { CloudAuthorizeDialog } from "@/components/projects/cloud-authorize-dialog";
+import { ContinuationResults } from "@/components/projects/continuation-results";
 import { DraftEditor } from "@/components/projects/draft-editor";
 import { DirectionEditor } from "@/components/projects/direction-editor";
 import { StageRail, type Stage } from "@/components/projects/stage-rail";
@@ -67,7 +63,7 @@ import { useAnalysisRun } from "@/components/projects/use-analysis-run";
 
 const OUTLINE_COUNT_OPTIONS = [3, 5, 8, 10];
 
-/** 这些步骤的产物是草稿，选中时展开草稿卡片（否则保持紧凑）。 */
+/** 这些步骤需要所选方向的草稿作为输入。 */
 const DRAFT_STAGES = new Set(["draft", "continuity-check", "draft-memory"]);
 
 /** 「已产出」的量词，按步骤给。 */
@@ -116,7 +112,7 @@ export function ContinuationPanel({
   const [taskRuns, setTaskRuns] = useState(initialTaskRuns);
 
   const [plans, setPlans] = useState(initialPlans);
-  const [expandedId, setExpandedId] = useState<string | null>(
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(
     () =>
       initialPlans.find((p) => p.status === "active")?.id ?? initialPlans[0]?.id ?? null,
   );
@@ -126,36 +122,36 @@ export function ContinuationPanel({
   const [pendingDelete, setPendingDelete] = useState<ContinuationPlanView | null>(null);
   const [directionEditor, setDirectionEditor] = useState<{ plan: ContinuationPlanView | null } | null>(null);
 
-  const [drafts, setDrafts] = useState<DraftChapterView[]>([]);
-  const [issues, setIssues] = useState<ContinuityIssueView[]>([]);
+  const [loadedDrafts, setDrafts] = useState<DraftChapterView[]>([]);
+  const [loadedDraftKey, setLoadedDraftKey] = useState<string | null>(null);
+  const [loadedDraftScope, setLoadedDraftScope] = useState<string | null>(null);
+  const [loadedDraftError, setLoadedDraftError] = useState<string | null>(null);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [previousData, setPreviousData] = useState({ plans: initialPlans, runs: initialTaskRuns });
+  if (previousData.plans !== initialPlans || previousData.runs !== initialTaskRuns) {
+    setPreviousData({ plans: initialPlans, runs: initialTaskRuns });
+    setPlans(initialPlans);
+    setTaskRuns(initialTaskRuns);
+    setReloadKey((value) => value + 1);
+  }
 
   const activeTask = tasks.find((t) => t.type === taskType) ?? tasks[0];
   const needsPlan = Boolean(activeTask?.requirement) && activeTask?.requirement !== "memory";
   const showOutlineCount = activeTask?.type === "outline";
-  const showAutomaticCount = Boolean(onAutoContinue);
+  const showAutomaticCount = Boolean(onAutoContinue) && taskType === "direction";
   const isContinuityTask = activeTask?.type === "continuity-check";
   const isDraftMemoryTask = activeTask?.type === "draft-memory";
   const showDrafts = DRAFT_STAGES.has(taskType);
 
-  const targetPlan = plans.find((p) => p.id === expandedId) ?? null;
+  const targetPlan = plans.find((p) => p.id === selectedPlanId) ?? null;
   const targetPlanId = targetPlan?.id ?? null;
+  const draftScope = JSON.stringify([projectId, targetPlanId, taskType]);
+  const draftRequestKey = JSON.stringify([projectId, targetPlanId, taskType, reloadKey]);
+  const draftsLoading = showDrafts && Boolean(targetPlanId) && loadedDraftKey !== draftRequestKey;
+  const draftsError = loadedDraftKey === draftRequestKey ? loadedDraftError : null;
+  const drafts = loadedDraftScope === draftScope ? loadedDrafts : [];
   const editingDraft = drafts.find((d) => d.id === editingDraftId) ?? null;
-
-  /** 未决问题数（按草稿分组），用于草稿列表徽标。 */
-  const openIssueCounts = (() => {
-    const map = new Map<string, number>();
-    for (const issue of issues) {
-      if (issue.status === "open" && issue.draftId) {
-        map.set(issue.draftId, (map.get(issue.draftId) ?? 0) + 1);
-      }
-    }
-    return map;
-  })();
-  const editingDraftIssues = editingDraft
-    ? issues.filter((i) => i.draftId === editingDraft.id)
-    : [];
 
   const refreshPlans = useCallback(async () => {
     try {
@@ -190,48 +186,27 @@ export function ContinuationPanel({
   });
   const runActive = taskActive || automationActive;
 
-  // 需要看草稿的步骤：拉取所选方向的草稿。
   useEffect(() => {
     if (!showDrafts || !targetPlanId) return;
     let active = true;
     (async () => {
       try {
-        const res = await fetch(`/api/projects/${projectId}/plans/${targetPlanId}/drafts`, {
-          cache: "no-store",
-        });
-        const data = (await res.json()) as { drafts?: DraftChapterView[] };
-        if (active && data.drafts) setDrafts(data.drafts);
-      } catch {
-        // 刷新失败不打断主流程
+        const res = await fetch(`/api/projects/${projectId}/plans/${targetPlanId}/drafts`, { cache: "no-store" });
+        const data = (await res.json()) as { drafts?: DraftChapterView[]; error?: string };
+        if (!res.ok || !data.drafts) throw new Error(data.error ?? "草稿加载失败");
+        if (active) { setDrafts(data.drafts); setLoadedDraftKey(draftRequestKey); setLoadedDraftScope(draftScope); setLoadedDraftError(null); }
+      } catch (error) {
+        if (active) { setLoadedDraftError(error instanceof Error ? error.message : "草稿加载失败"); setLoadedDraftKey(draftRequestKey); }
       }
     })();
-    return () => {
-      active = false;
-    };
-  }, [showDrafts, targetPlanId, reloadKey, projectId]);
-
-  // 顺带拉一次本项目的连续性检查问题，供列表徽标与编辑器共用。
-  useEffect(() => {
-    if (!showDrafts) return;
-    let active = true;
-    (async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/issues`, { cache: "no-store" });
-        const data = (await res.json()) as { issues?: ContinuityIssueView[] };
-        if (active && data.issues) setIssues(data.issues);
-      } catch {
-        // 刷新失败不打断主流程
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [showDrafts, reloadKey, projectId]);
+    return () => { active = false; };
+  }, [showDrafts, draftRequestKey, draftScope, targetPlanId, projectId]);
 
   /** 某一步骤要展示的运行：进行中的那次优先，否则用该步骤的服务端最近一次。 */
   function runForStage(key: string): RunStatusView | null {
-    if (hookRun && hookRun.taskType === key) return hookRun;
-    return taskRuns[key] ?? null;
+    const stored = taskRuns[key] ?? null;
+    const candidate = hookRun?.taskType === key && (!stored || hookRun.createdAt >= stored.createdAt) ? hookRun : stored;
+    return candidate?.payload.planId && candidate.payload.planId !== targetPlanId ? null : candidate;
   }
 
   const requirementState = {
@@ -266,7 +241,7 @@ export function ContinuationPanel({
   const activeStage = stages.find((s) => s.key === taskType);
   const displayRun = runForStage(taskType);
   const runActions =
-    hookRun && hookRun.taskType === taskType
+    hookRun && displayRun?.id === hookRun.id
       ? { busy, onCancel: () => void cancel(), onResume: () => void resume() }
       : null;
 
@@ -293,54 +268,9 @@ export function ContinuationPanel({
     });
   }
 
-  /** 检查连续性：指定草稿时只查该章，否则检查所选方向的全部草稿。 */
-  async function checkContinuity(draft?: DraftChapterView) {
-    const planId = draft?.planId ?? targetPlanId;
-    if (!planId) {
-      notify.error("请先选定一个续写方向。");
-      return;
-    }
-    await startRun({
-      taskType: "continuity-check",
-      profileId,
-      payload: { planId, ...(draft ? { draftId: draft.id } : {}) },
-    });
-  }
-
-  /** 提取记忆变化：指定草稿时只处理该章，否则处理所选方向的全部草稿。 */
-  async function proposeMemory(draft?: DraftChapterView) {
-    const planId = draft?.planId ?? targetPlanId;
-    if (!planId) {
-      notify.error("请先选定一个续写方向。");
-      return;
-    }
-    await startRun({
-      taskType: "draft-memory",
-      profileId,
-      payload: { planId, ...(draft ? { draftId: draft.id } : {}) },
-    });
-  }
-
-  async function setIssueStatus(issueId: string, status: IssueStatus) {
-    const prev = issues;
-    setIssues((list) => list.map((i) => (i.id === issueId ? { ...i, status } : i)));
-    try {
-      const res = await fetch(`/api/projects/${projectId}/issues/${issueId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      const data = (await res.json()) as { issue?: ContinuityIssueView; error?: string };
-      if (!res.ok || !data.issue) throw new Error(data.error ?? "更新失败");
-      setIssues((list) => list.map((i) => (i.id === issueId ? data.issue! : i)));
-    } catch (error) {
-      setIssues(prev);
-      notify.error(error instanceof Error ? error.message : "更新失败");
-    }
-  }
-
   async function activate(id: string) {
     setActingPlan(id);
+    setSelectedPlanId(id);
     try {
       if (onAutoContinue) {
         await onAutoContinue(id, profileId, outlineCount);
@@ -381,7 +311,7 @@ export function ContinuationPanel({
   }
 
   function beginEdit(plan: ContinuationPlanView) {
-    setExpandedId(plan.id);
+    setSelectedPlanId(plan.id);
     setEditing({
       planId: plan.id,
       items: plan.outline.map((item) => ({ ...item, beats: [...item.beats] })),
@@ -521,8 +451,8 @@ export function ContinuationPanel({
                   <Label htmlFor="cn-plan">目标方向</Label>
                   <Select
                     value={targetPlan?.id ?? ""}
-                    onValueChange={(v) => setExpandedId(v)}
-                    disabled={plans.length === 0}
+                    onValueChange={(v) => setSelectedPlanId(v)}
+                    disabled={plans.length === 0 || runActive}
                   >
                     <SelectTrigger id="cn-plan">
                       <SelectValue placeholder="尚无方向" />
@@ -619,8 +549,7 @@ export function ContinuationPanel({
         actions={runActions}
       />
 
-      {/* 方向与章纲（常驻：方向选择始终可达） */}
-      <Card>
+      {taskType === "direction" && <Card aria-label="续写方向结果">
         <CardContent className="space-y-4 py-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -651,8 +580,6 @@ export function ContinuationPanel({
           ) : (
             <ul role="list" className="space-y-3">
               {plans.map((plan) => {
-                const isExpanded = targetPlan?.id === plan.id;
-                const isEditing = editing?.planId === plan.id;
                 return (
                   <li key={plan.id} className="rounded-lg border bg-card">
                     <div className="space-y-2 p-4">
@@ -666,14 +593,7 @@ export function ContinuationPanel({
                         <Badge variant="secondary" className="text-xs">
                           v{plan.version}
                         </Badge>
-                        <Badge variant="outline" className="text-xs font-normal">
-                          章纲 {plan.outline.length} 章
-                        </Badge>
-                        {plan.draftCount > 0 && (
-                          <Badge variant="outline" className="text-xs font-normal">
-                            草稿 {plan.draftCount} 章
-                          </Badge>
-                        )}
+
                       </div>
 
                       <p className="font-medium">{plan.direction}</p>
@@ -698,13 +618,6 @@ export function ContinuationPanel({
                           onClick={() => setDirectionEditor({ plan })}>
                           <Pencil className="size-4" />
                           {plan.outline.length > 0 || plan.draftCount > 0 ? "修改并另存" : "编辑方向"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setExpandedId(isExpanded ? null : plan.id)}
-                        >
-                          {isExpanded ? "收起章纲" : "查看章纲"}
                         </Button>
                         {(plan.status !== "active" || onAutoContinue) && (
                           <Button
@@ -731,154 +644,158 @@ export function ContinuationPanel({
                         </Button>
                       </div>
                     </div>
-
-                    {isExpanded && (
-                      <div className="space-y-3 border-t bg-muted/20 p-4">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">章纲</span>
-                          {!isEditing && (
-                            <Button variant="outline" size="sm" onClick={() => beginEdit(plan)}>
-                              <Pencil className="size-4" />
-                              编辑章纲
-                            </Button>
-                          )}
-                        </div>
-
-                        {isEditing ? (
-                          <div className="space-y-3">
-                            {editing.items.map((item, i) => (
-                              <div key={i} className="space-y-2 rounded-md border bg-card p-3">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm text-muted-foreground">
-                                    第 {i + 1} 章
-                                  </span>
-                                  <Input
-                                    value={item.title}
-                                    onChange={(e) => updateItem(i, { title: e.target.value })}
-                                    placeholder="章标题"
-                                    aria-label={`第 ${i + 1} 章标题`}
-                                    className="flex-1"
-                                  />
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => removeItem(i)}
-                                    aria-label={`删除第 ${i + 1} 章`}
-                                  >
-                                    <X className="size-4" />
-                                  </Button>
-                                </div>
-                                <Textarea
-                                  value={item.summary}
-                                  onChange={(e) => updateItem(i, { summary: e.target.value })}
-                                  placeholder="本章走向"
-                                  aria-label={`第 ${i + 1} 章走向`}
-                                  rows={2}
-                                />
-                                <Textarea
-                                  value={item.beats.join("\n")}
-                                  onChange={(e) =>
-                                    updateItem(i, {
-                                      beats: e.target.value
-                                        .split("\n")
-                                        .map((b) => b.trim())
-                                        .filter(Boolean),
-                                    })
-                                  }
-                                  placeholder="关键节拍，一行一条"
-                                  aria-label={`第 ${i + 1} 章节拍`}
-                                  rows={3}
-                                />
-                              </div>
-                            ))}
-
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <Button variant="outline" size="sm" onClick={addItem}>
-                                <Plus className="size-4" />
-                                添加一章
-                              </Button>
-                              <div className="flex gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setEditing(null)}
-                                  disabled={saving}
-                                >
-                                  取消
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => void saveOutline()}
-                                  disabled={saving}
-                                >
-                                  {saving ? (
-                                    <Loader2 className="size-4 animate-spin" />
-                                  ) : (
-                                    <Save className="size-4" />
-                                  )}
-                                  保存章纲
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        ) : plan.outline.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">
-                            这个方向还没有章纲。选中「生成章纲」步骤即可为它排序接下来的章节。
-                          </p>
-                        ) : (
-                          <ol className="space-y-2">
-                            {plan.outline.map((item) => (
-                              <li key={item.index} className="rounded-md border bg-card p-3">
-                                <p className="text-sm font-medium">
-                                  第 {item.index} 章 · {item.title}
-                                </p>
-                                {item.summary && (
-                                  <p className="mt-1 text-sm whitespace-pre-wrap text-muted-foreground">
-                                    {item.summary}
-                                  </p>
-                                )}
-                                {item.beats.length > 0 && (
-                                  <ul className="mt-2 space-y-0.5">
-                                    {item.beats.map((b, i) => (
-                                      <li
-                                        key={i}
-                                        className="text-xs text-muted-foreground before:mr-1.5 before:content-['·']"
-                                      >
-                                        {b}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                                {item.relatedThreads.length > 0 && (
-                                  <div className="mt-2 flex flex-wrap gap-1.5">
-                                    {item.relatedThreads.map((t, i) => (
-                                      <Badge
-                                        key={i}
-                                        variant="outline"
-                                        className="text-xs font-normal"
-                                      >
-                                        {t}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                )}
-                              </li>
-                            ))}
-                          </ol>
-                        )}
-                      </div>
-                    )}
                   </li>
                 );
               })}
             </ul>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
-      {/* 草稿：仅草稿类步骤展开 */}
-      {showDrafts && (
-        <Card>
+      {taskType === "outline" && <Card aria-label="章纲结果"><CardContent className="space-y-4 py-5">
+        <h2 className="font-medium">所选方向的章纲</h2>
+        {targetPlan ? (() => {
+          const plan = targetPlan;
+          const isEditing = editing?.planId === plan.id;
+          return (<div className="space-y-3 border-t bg-muted/20 p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">章纲</span>
+              {!isEditing && (
+                <Button variant="outline" size="sm" onClick={() => beginEdit(plan)}>
+                  <Pencil className="size-4" />
+                  编辑章纲
+                </Button>
+              )}
+            </div>
+
+            {isEditing ? (
+              <div className="space-y-3">
+                {editing!.items.map((item, i) => (
+                  <div key={i} className="space-y-2 rounded-md border bg-card p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">
+                        第 {i + 1} 章
+                      </span>
+                      <Input
+                        value={item.title}
+                        onChange={(e) => updateItem(i, { title: e.target.value })}
+                        placeholder="章标题"
+                        aria-label={`第 ${i + 1} 章标题`}
+                        className="flex-1"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeItem(i)}
+                        aria-label={`删除第 ${i + 1} 章`}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </div>
+                    <Textarea
+                      value={item.summary}
+                      onChange={(e) => updateItem(i, { summary: e.target.value })}
+                      placeholder="本章走向"
+                      aria-label={`第 ${i + 1} 章走向`}
+                      rows={2}
+                    />
+                    <Textarea
+                      value={item.beats.join("\n")}
+                      onChange={(e) =>
+                        updateItem(i, {
+                          beats: e.target.value
+                            .split("\n")
+                            .map((b) => b.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                      placeholder="关键节拍，一行一条"
+                      aria-label={`第 ${i + 1} 章节拍`}
+                      rows={3}
+                    />
+                  </div>
+                ))}
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Button variant="outline" size="sm" onClick={addItem}>
+                    <Plus className="size-4" />
+                    添加一章
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditing(null)}
+                      disabled={saving}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => void saveOutline()}
+                      disabled={saving}
+                    >
+                      {saving ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Save className="size-4" />
+                      )}
+                      保存章纲
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : plan.outline.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                这个方向还没有章纲。选中「生成章纲」步骤即可为它排序接下来的章节。
+              </p>
+            ) : (
+              <ol className="space-y-2">
+                {plan.outline.map((item) => (
+                  <li key={item.index} className="rounded-md border bg-card p-3">
+                    <p className="text-sm font-medium">
+                      第 {item.index} 章 · {item.title}
+                    </p>
+                    {item.summary && (
+                      <p className="mt-1 text-sm whitespace-pre-wrap text-muted-foreground">
+                        {item.summary}
+                      </p>
+                    )}
+                    {item.beats.length > 0 && (
+                      <ul className="mt-2 space-y-0.5">
+                        {item.beats.map((b, i) => (
+                          <li
+                            key={i}
+                            className="text-xs text-muted-foreground before:mr-1.5 before:content-['·']"
+                          >
+                            {b}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {item.relatedThreads.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {item.relatedThreads.map((t, i) => (
+                          <Badge
+                            key={i}
+                            variant="outline"
+                            className="text-xs font-normal"
+                          >
+                            {t}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>);
+        })() : <p className="text-sm text-muted-foreground">请先在「确定续写方向」中添加方向。</p>}
+      </CardContent></Card>}
+
+      {taskType === "draft" && (
+        <Card aria-label="草稿结果">
           <CardContent className="space-y-4 py-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -902,7 +819,7 @@ export function ContinuationPanel({
               )}
             </div>
 
-            {!targetPlan ? (
+            {draftsLoading ? <p role="status" className="text-sm text-muted-foreground">正在加载草稿…</p> : draftsError ? <p role="alert" className="text-sm text-destructive">{draftsError}</p> : !targetPlan ? (
               <div className="rounded-lg border border-dashed p-10 text-center">
                 <p className="text-sm text-muted-foreground">
                   先到上方生成并选定一个续写方向。
@@ -932,43 +849,15 @@ export function ContinuationPanel({
                           <Badge variant="outline" className="text-xs font-normal">
                             {d.content.length} 字
                           </Badge>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-xs font-normal",
-                              toneClass(MEMORY_UPDATE_TONE[d.memoryUpdateStatus]),
-                            )}
-                          >
-                            {MEMORY_UPDATE_LABEL[d.memoryUpdateStatus]}
-                          </Badge>
-                          {openIssueCounts.get(d.id) ? (
-                            <Badge variant="outline" className={toneClass("warning")}>
-                              {openIssueCounts.get(d.id)} 处待核对
-                            </Badge>
-                          ) : null}
+
                         </div>
                         <p className="line-clamp-2 text-sm text-muted-foreground">
                           {d.content.slice(0, 120)}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void checkContinuity(d)}
-                          disabled={busy || runActive}
-                        >
-                          <ScanSearch className="size-4" />
-                          检查连续性
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void proposeMemory(d)}
-                          disabled={busy || runActive}
-                        >
-                          <Sparkles className="size-4" />
-                          提取记忆变化
+                        <Button variant="outline" size="sm" disabled={busy || runActive} onClick={() => void regenerateDraft(d)}>
+                          <RotateCcw className="size-4" />重新生成
                         </Button>
                         <Button
                           variant="outline"
@@ -987,6 +876,14 @@ export function ContinuationPanel({
           </CardContent>
         </Card>
       )}
+
+      {(isContinuityTask || isDraftMemoryTask) && <ContinuationResults
+        key={`${projectId}:${targetPlanId}:${taskType}`}
+        projectId={projectId} planId={targetPlanId} drafts={drafts}
+        kind={isContinuityTask ? "continuity" : "memory"} reloadKey={reloadKey}
+        loadingDrafts={draftsLoading} draftsError={draftsError} disabled={runActive}
+        onRefresh={() => setReloadKey((value) => value + 1)}
+      />}
 
       <AlertDialog
         open={pendingDelete !== null}
@@ -1018,7 +915,7 @@ export function ContinuationPanel({
             setPlans((prev) => [saved, ...prev.filter((p) => p.id !== saved.id).map((p) =>
               saved.status === "active" && p.status === "active" ? { ...p, status: "draft" as const } : p,
             )]);
-            setExpandedId(saved.id);
+            setSelectedPlanId(saved.id);
             setDirectionEditor(null);
             if (goToOutline) {
               if (onAutoContinue) {
@@ -1033,15 +930,12 @@ export function ContinuationPanel({
           }} />
       )}
 
-      {editingDraft && (
+      {taskType === "draft" && editingDraft && (
         <DraftEditor
           key={`${editingDraft.id}-${editingDraft.version}`}
           draft={editingDraft}
           open
           regenerating={runActive}
-          issues={editingDraftIssues}
-          checking={runActive}
-          proposing={runActive}
           onOpenChange={(o) => !o && setEditingDraftId(null)}
           onSaved={(saved) =>
             setDrafts((prev) => prev.map((d) => (d.id === saved.id ? saved : d)))
@@ -1051,9 +945,6 @@ export function ContinuationPanel({
             setEditingDraftId(null);
           }}
           onRegenerate={() => void regenerateDraft(editingDraft)}
-          onCheck={() => void checkContinuity(editingDraft)}
-          onProposeMemory={() => void proposeMemory(editingDraft)}
-          onIssueStatus={(issueId, status) => void setIssueStatus(issueId, status)}
           onExportText={onExportText}
         />
       )}
