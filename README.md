@@ -2,7 +2,7 @@
 
 长亿是一款本地小说写作工具，帮助你导入长篇原文、整理人物与故事设定、规划后续情节并生成续写草稿。原文、故事记忆和续写作品分别保存，方便校对、审阅和持续创作。
 
-[下载 Windows 安装包 · v0.2.13](https://github.com/openyourass66/CHANGYI-NOVEL/releases/download/v0.2.13/Changyi_0.2.13_x64.zip) · [版本说明与校验文件](https://github.com/openyourass66/CHANGYI-NOVEL/releases/tag/v0.2.13)
+[下载 Windows 安装包 · v0.2.14](https://github.com/openyourass66/CHANGYI-NOVEL/releases/download/v0.2.14/Changyi_0.2.14_x64.zip) · [版本说明与校验文件](https://github.com/openyourass66/CHANGYI-NOVEL/releases/tag/v0.2.14)
 
 ## 功能
 
@@ -20,7 +20,7 @@
 
 ## 安装与开始使用
 
-1. 下载并解压 Windows x64 安装包，运行 `长亿_0.2.13_x64-setup.exe`。应用使用系统 WebView2，缺失时安装程序会提示下载。旧版用户需先手动安装此版本，后续版本可在应用内更新。
+1. 下载并解压 Windows x64 安装包，以管理员权限运行 `长亿_0.2.14_x64-setup.exe` 并确认 UAC 提示。应用使用系统 WebView2，缺失时安装程序会提示下载。0.2.13 可在应用内更新，更早版本需先手动安装一次。
 2. 打开“设置”，确认数据保存位置并添加模型档案，可先测试连接。
 3. 创建项目并导入小说，检查章节识别结果。
 4. 在“理解分析”中积累故事记忆，再到“续写规划”确定方向并开始续写。
@@ -57,7 +57,7 @@ pnpm build
 pnpm test:e2e
 # 签名打包，更新说明路径按当前版本填写
 $env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\changyi-updater.key"
-pnpm release:build ./release-notes-0.2.13.txt
+pnpm release:build ./release-notes-0.2.14.txt
 ```
 
 `pnpm dev` 和 `pnpm preview` 用于界面预览，实际业务操作请启动桌面应用。安装包输出到 `desktop/src-tauri/target/release/bundle/nsis/`。测试使用隔离工作区和本地模拟模型；个人数据、密钥及构建产物不提交到 Git。
