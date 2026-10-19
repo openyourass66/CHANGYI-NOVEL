@@ -54,7 +54,11 @@ pnpm test
 pnpm test:native
 pnpm build
 pnpm test:e2e
-pnpm desktop:dist
+# 签名打包，更新说明路径按当前版本填写
+$env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\changyi-updater.key"
+pnpm release:build ./release-notes-0.2.13.txt
 ```
 
 `pnpm dev` 和 `pnpm preview` 用于界面预览，实际业务操作请启动桌面应用。安装包输出到 `desktop/src-tauri/target/release/bundle/nsis/`。测试使用隔离工作区和本地模拟模型；个人数据、密钥及构建产物不提交到 Git。
+
+应用内更新、签名密钥和发布附件说明见 [更新发布指南](desktop/UPDATES.md)。

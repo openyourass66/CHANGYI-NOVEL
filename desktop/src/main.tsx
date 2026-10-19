@@ -24,6 +24,7 @@ import "./styles.css";
 import { AutomationProvider, AutomationSettings, useAutoContinue, useWorkflows } from "./automation";
 import { Reader } from "./reader";
 import { WorksLibrary } from "./works";
+import { UpdateProvider, UpdateSettings } from "./updater";
 
 installBridge();
 if (isTauri()) document.documentElement.dataset.nativeDesktop = "true";
@@ -55,7 +56,7 @@ function Shell() {
     return () => document.removeEventListener("mousedown", drag);
   }, []);
   return <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-    <AppShell><AutomationProvider><Outlet /></AutomationProvider></AppShell>
+    <UpdateProvider><AppShell><AutomationProvider><Outlet /></AutomationProvider></AppShell></UpdateProvider>
     <div className="native-window-controls fixed right-0 top-0 z-50 h-14 items-stretch">
       {[
         { label: "最小化", icon: Minus, action: () => getCurrentWindow().minimize() },
@@ -185,6 +186,7 @@ function Settings() {
     <ProfileManager profiles={profiles.profiles} encryptionReady={profiles.encryptionReady} />
     <AutomationSettings />
     <NativeStorageSettings/>
+    <UpdateSettings />
   </div>;
 }
 

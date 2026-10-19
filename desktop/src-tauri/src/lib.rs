@@ -38,8 +38,23 @@ mod desktop {
         root: PathBuf,
         db: rusqlite::Connection,
         startup_error: Option<String>,
+        updating: bool,
     }
     type SharedWorkspace = Arc<Mutex<Workspace>>;
+
+    #[tauri::command]
+    fn prepare_update(state: State<'_, SharedWorkspace>) -> Result<()> {
+        let mut workspace = state.lock().map_err(|_| "工作区不可用。")?;
+        storage::ensure_idle(&workspace.db)?;
+        workspace.updating = true;
+        Ok(())
+    }
+
+    #[tauri::command]
+    fn cancel_update(state: State<'_, SharedWorkspace>) -> Result<()> {
+        state.lock().map_err(|_| "工作区不可用。")?.updating = false;
+        Ok(())
+    }
 
     #[tauri::command]
     async fn api_request(
@@ -49,6 +64,9 @@ mod desktop {
         let shared = state.inner().clone();
         tauri::async_runtime::spawn_blocking(move || {
             let mut workspace = shared.lock().map_err(|_| "工作区不可用。")?;
+            if workspace.updating {
+                return Err("正在安装更新，请稍候。".into());
+            }
             let root = workspace.root.clone();
             if request.method == "POST"
                 && request.path.starts_with("/api/model-profiles/")
@@ -93,6 +111,9 @@ mod desktop {
                 .canonicalize()
                 .map_err(|e| e.to_string())?;
             let mut current = shared.lock().map_err(|_| "工作区不可用。")?;
+            if current.updating {
+                return Err("正在安装更新，请稍候。".into());
+            }
             storage::ensure_idle(&current.db)?;
             let parent = app.path().app_data_dir().map_err(|e| e.to_string())?;
             let target = parent.join(format!("workspace-{}", database::id()));
@@ -102,6 +123,7 @@ mod desktop {
                 root: target.clone(),
                 db,
                 startup_error: None,
+                updating: false,
             };
             Ok(Some(json!({"dataDir":target})))
         })
@@ -137,6 +159,9 @@ mod desktop {
         let shared = state.inner().clone();
         tauri::async_runtime::spawn_blocking(move || {
             let mut current = shared.lock().map_err(|_| "工作区不可用。")?;
+            if current.updating {
+                return Err("正在安装更新，请稍候。".into());
+            }
             storage::ensure_idle(&current.db)?;
             let target = PathBuf::from(directory);
             let db = storage::prepare_destination(&current.root, &target)?;
@@ -147,6 +172,7 @@ mod desktop {
                 root: target.clone(),
                 db,
                 startup_error: None,
+                updating: false,
             };
             Ok(json!({"dataDir":target}))
         })
@@ -258,6 +284,7 @@ mod desktop {
 
     pub fn run() {
         tauri::Builder::default()
+            .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_dialog::init())
             .plugin(tauri_plugin_single_instance::init(|app, _, _| {
                 if let Some(window) = app.get_webview_window("main") {
@@ -283,11 +310,13 @@ mod desktop {
                         (root,db,Some(format!("原工作区未能打开：{error} 已进入临时恢复工作区，请到设置重新选择原数据文件夹。")))
                     }
                 };
-                app.manage(Arc::new(Mutex::new(Workspace{root,db,startup_error})));
+                app.manage(Arc::new(Mutex::new(Workspace{root,db,startup_error,updating:false})));
                 Ok(())
             })
             .invoke_handler(tauri::generate_handler![
                 api_request,
+                prepare_update,
+                cancel_update,
                 get_storage,
                 copy_workspace,
                 choose_directory,

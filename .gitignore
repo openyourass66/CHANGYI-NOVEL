@@ -16,5 +16,8 @@
 /desktop/public/pdfjs/
 /desktop/.tools/
 /desktop/.verify/
+/desktop/.release/
+*.key
+*.key.pub
 /desktop/src-tauri/target/
 /desktop/src-tauri/gen/schemas/
