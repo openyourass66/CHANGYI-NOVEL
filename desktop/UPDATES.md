@@ -31,3 +31,15 @@ pnpm release:build ./release-notes.txt
 更新入口：`https://github.com/openyourass66/CHANGYI-NOVEL/releases/latest/download/latest.json`。在第一个包含清单的正式版本发布前，此地址可能返回 404；手动检查会显示失败。GitHub 网络不可用时仍可通过原下载渠道手动安装。旧版未接入更新代码的用户需手动安装一次。
 
 应用下载的更新包暂存在进程内存中，“稍后”可在本次运行内继续安装；关闭应用后需要重新下载。当前仅发布 Windows x64 更新。
+
+## 原生更新链路验证
+
+发布后可以使用同一 Tauri 更新插件检查公开端点并下载验证签名，无需启动业务界面或打开个人工作区：
+
+```powershell
+cargo run --manifest-path src-tauri/Cargo.toml --example verify-update --release -- 0.2.12 .verify/downloaded-update.exe
+```
+
+第一个参数是验证客户端的当前版本。传入最新版本应返回没有更新。该工具不会让不含更新代码的旧版自动获得更新功能，而是用于验证插件的版本比较、公开下载和签名校验。
+
+仅在已经备份、确认应用退出并准备执行真实安装时，可以增加第三个参数，指定要升级的已安装 `changyi.exe` 的绝对路径。工具会调起实际 Windows 更新安装程序并退出，不自动重启业务应用。安装后应核对程序版本、文件校验值、安装路径和工作区数据是否保留。
