@@ -37,7 +37,9 @@ pnpm release:build ./release-notes.txt
 发布后可以使用同一 Tauri 更新插件检查公开端点并下载验证签名，无需启动业务界面或打开个人工作区：
 
 ```powershell
-cargo run --manifest-path src-tauri/Cargo.toml --example verify-update --release -- 0.2.12 .verify/downloaded-update.exe
+cargo build --manifest-path src-tauri/Cargo.toml --example verify-update --release
+Copy-Item ./src-tauri/target/release/WebView2Loader.dll ./src-tauri/target/release/examples/
+& ./src-tauri/target/release/examples/verify-update.exe 0.2.12 .verify/downloaded-update.exe
 ```
 
 第一个参数是验证客户端的当前版本。传入最新版本应返回没有更新。该工具不会让不含更新代码的旧版自动获得更新功能，而是用于验证插件的版本比较、公开下载和签名校验。
