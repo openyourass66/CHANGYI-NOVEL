@@ -41,9 +41,11 @@ pnpm release:build ./release-notes.txt
 ```powershell
 cargo build --manifest-path src-tauri/Cargo.toml --example verify-update --release
 Copy-Item ./src-tauri/target/release/WebView2Loader.dll ./src-tauri/target/release/examples/
-& ./src-tauri/target/release/examples/verify-update.exe 0.2.12 .verify/downloaded-update.exe
+& ./src-tauri/target/release/examples/verify-update.exe 0.2.13 .verify/downloaded-update.exe
 ```
 
 第一个参数是验证客户端的当前版本。传入最新版本应返回没有更新。该工具不会让不含更新代码的旧版自动获得更新功能，而是用于验证插件的版本比较、公开下载和签名校验。
 
 仅在已经备份、确认应用退出并准备执行真实安装时，可以增加第三个参数，指定要升级的已安装 `changyi.exe` 的绝对路径。工具会调起实际 Windows 更新安装程序并退出，不自动重启业务应用。安装后应核对程序版本、文件校验值、安装路径和工作区数据是否保留。
+
+2026-10-19 已在 Windows 上使用真实公开 GitHub Release 和同一 Tauri 插件完成 `0.2.13 → 0.2.14` 的版本发现、下载、签名验证和 NSIS 安装。安装包清单为 `requireAdministrator`；更新插件调起安装后，程序及卸载信息均为 `0.2.14`，原安装路径保留，全部工作区文件和位置配置的 SHA-256 与升级前一致。验证工具关闭自动重启，业务应用未在验证中打开个人工作区。
