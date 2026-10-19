@@ -4,7 +4,7 @@
 
 ## 签名密钥
 
-Windows 安装包通过定制 NSIS 模板请求管理员权限，手动安装及应用内更新都会触发 UAC；安装范围仍为当前用户，保留原安装位置。模板基于 Tauri CLI v2.12.3，仅将当前用户安装分支的执行权限改为管理员；升级 CLI 时需同步审核模板。
+Windows 安装包使用基于 Tauri CLI v2.12.3 的定制 NSIS 模板，保留当前用户的原安装位置；升级 CLI 时需同步审核模板。
 
 公钥保存在 `src-tauri/tauri.conf.json`。对应私钥由维护者在仓库外保管，当前开发机为 `$env:USERPROFILE\.tauri\changyi-updater.key`。请备份私钥；不要重新生成并替换已经发布版本的公钥，否则旧客户端无法验证后续更新。私钥不上传 GitHub Release，不进入 Git。
 
