@@ -67,9 +67,11 @@ ${StrLoc}
 !define WEBVIEW2BOOTSTRAPPERPATH "{{webview2_bootstrapper_path}}"
 !define WEBVIEW2INSTALLERPATH "{{webview2_installer_path}}"
 !define MINIMUMWEBVIEW2VERSION "{{minimum_webview2_version}}"
-!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}"
+; Keep the original registry identity so renamed builds upgrade existing installations.
+!define INSTALLIDENTITY "长亿"
+!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALLIDENTITY}"
 !define MANUKEY "Software\${MANUFACTURER}"
-!define MANUPRODUCTKEY "${MANUKEY}\${PRODUCTNAME}"
+!define MANUPRODUCTKEY "${MANUKEY}\${INSTALLIDENTITY}"
 !define UNINSTALLERSIGNCOMMAND "{{uninstaller_sign_cmd}}"
 !define ESTIMATEDSIZE "{{estimated_size}}"
 !define STARTMENUFOLDER "{{start_menu_folder}}"
@@ -749,6 +751,17 @@ Section Install
     Call CreateOrUpdateDesktopShortcut
   ${EndIf}
 
+  ; Remove only legacy shortcuts that belong to this installation.
+  !insertmacro IsShortcutTarget "$DESKTOP\${INSTALLIDENTITY}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+  Pop $0
+  ${If} $0 = 1
+    Delete "$DESKTOP\${INSTALLIDENTITY}.lnk"
+  ${EndIf}
+  !insertmacro IsShortcutTarget "$SMPROGRAMS\${INSTALLIDENTITY}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+  Pop $0
+  ${If} $0 = 1
+    Delete "$SMPROGRAMS\${INSTALLIDENTITY}.lnk"
+  ${EndIf}
   !ifmacrodef NSIS_HOOK_POSTINSTALL
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
