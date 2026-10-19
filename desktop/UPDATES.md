@@ -22,7 +22,7 @@ $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
 pnpm release:build ./release-notes.txt
 ```
 
-`release:build` 执行前端构建、NSIS 打包和签名，然后生成 `.release/<版本>/latest.json`。生成清单时会检查三个版本一致、更新说明非空、当前版本只有一个 x64 安装包且有签名。单独重新生成清单可执行 `pnpm release:manifest ./release-notes.txt`。
+`release:build` 执行前端构建、NSIS 打包和签名，然后在 `.release/<版本>/` 中生成 `latest.json`，并复制安装包及签名为英文附件名 `Changyi_<版本>_x64-setup.exe` 和 `.exe.sig`，避免 GitHub 修改中文附件名导致下载地址失效。请上传该目录中的英文附件。生成清单时会检查三个版本一致、更新说明非空、当前版本只有一个 x64 安装包且有签名。单独重新生成清单可执行 `pnpm release:manifest ./release-notes.txt`。
 
 4. 在 `openyourass66/CHANGYI-NOVEL` 创建对应 `v<版本>` Release，上传 NSIS `.exe`、对应 `.exe.sig` 和 `latest.json`。清单中的文件名和 tag 必须与实际上传内容一致。
 5. 所有附件上传完整后发布为最新正式版本；草稿和预发布版本不作为默认更新渠道。

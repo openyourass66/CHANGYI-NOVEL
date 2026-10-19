@@ -14,6 +14,10 @@ name = "changyi"
 path = "src/main.rs"
 required-features = ["desktop"]
 
+[[example]]
+name = "verify-update"
+required-features = ["desktop"]
+
 [features]
 default = ["desktop"]
 desktop = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-plugin-single-instance", "dep:tauri-plugin-updater", "dep:tauri-build"]
