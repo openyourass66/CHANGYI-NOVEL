@@ -151,7 +151,7 @@ pub fn prepare_destination(current: &Path, target: &Path) -> Result<Connection> 
     } else if empty(&target)? {
         copy_to(&current, &target)
     } else {
-        Err("所选文件夹不是长亿工作区，也不是空文件夹。".into())
+        Err("所选文件夹不是长忆工作区，也不是空文件夹。".into())
     }
 }
 

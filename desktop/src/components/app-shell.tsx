@@ -14,7 +14,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="app-titlebar flex h-14 items-center gap-4 px-4 lg:px-6">
             <Link
               href="/"
-              aria-label="长亿，返回项目库"
+              aria-label="长忆，返回项目库"
               className="flex items-center gap-2 rounded-md px-1 font-semibold tracking-tight focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               <Image
@@ -25,7 +25,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 loading="eager"
                 className="size-7 shrink-0"
               />
-              <span>长亿</span>
+              <span>长忆</span>
             </Link>
             <div className="h-5 w-px bg-border" aria-hidden />
             <Suspense fallback={<div className="h-10 w-52" aria-hidden />}>

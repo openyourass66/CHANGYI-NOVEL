@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "长亿",
+  "productName": "长忆",
   "mainBinaryName": "changyi",
   "version": "0.2.14",
   "identifier": "com.changyi.novel.preview",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "长亿",
+        "title": "长忆",
         "width": 1280,
         "height": 860,
         "minWidth": 860,
@@ -46,7 +46,7 @@
         "silent": true
       }
     },
-    "shortDescription": "长亿小说理解与续写工作台",
+    "shortDescription": "长忆小说理解与续写工作台",
     "createUpdaterArtifacts": true
   },
   "plugins": {

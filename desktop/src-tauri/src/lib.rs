@@ -100,7 +100,7 @@ mod desktop {
             let Some(selected) = app
                 .dialog()
                 .file()
-                .set_title("选择要复制的长亿数据文件夹")
+                .set_title("选择要复制的长忆数据文件夹")
                 .blocking_pick_folder()
             else {
                 return Ok(None);
@@ -326,7 +326,7 @@ mod desktop {
                 save_export
             ])
             .run(tauri::generate_context!())
-            .expect("无法启动长亿，请检查工作区和系统 WebView2。");
+            .expect("无法启动长忆，请检查工作区和系统 WebView2。");
     }
 }
 
